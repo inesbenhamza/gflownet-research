@@ -1,35 +1,44 @@
-
 ---
-title: "DT-GFN: Bayesian Decision Trees with GFlowNets"
+title: "GFlowNet"
 ---
 
-Welcome to my tutorial and research website.
+Welcome to my tutorial and research website on
+**Generative Flow Networks (GFlowNets)**.
 
-This project explores how **Generative Flow Networks
-(GFlowNets)** can be used to sample Bayesian decision
-tree structures.
+GFlowNets learn to build complex objects step by step, such as
+graphs, sequences, molecules, or decision trees, and to sample
+them in proportion to a reward. This site collects the theory,
+hands-on tutorials, and my ongoing research.
+
+## The central idea
+
+Given a reward $R(x) \geq 0$ over objects $x$, a GFlowNet learns
+a sequential sampler such that
+
+$$
+P(x) = \frac{R(x)}{Z}, \qquad Z = \sum_{x} R(x).
+$$
+
+Instead of finding a single best object, it finds *many* good
+and diverse ones. That makes GFlowNets useful for discovery and
+for approximate Bayesian inference.
 
 ## What you'll find here
 
 ### Theory
-Mathematical foundations of Bayesian decision trees,
-GFlowNets, and trajectory balance.
+The mathematical foundations of GFlowNets (flows, forward and
+backward policies, and training objectives such as trajectory
+balance), plus the application domains used on this site, such
+as Bayesian decision trees.
 
 ### Tutorials
-Step-by-step computational examples demonstrating
-tree construction, posterior sampling, and training.
+Step-by-step computational examples: building objects
+sequentially, defining rewards, and training GFlowNets.
 
 ### Research
-Experiments on posterior accuracy, uncertainty
-quantification, and categorical splitting strategies.
+Ongoing projects, including:
 
-## The central idea
-
-We want to sample decision trees according to:
-
-$$
-p(T \mid D) \propto p(D \mid T)p(T)
-$$
-
-DT-GFN trains a GFlowNet to approximate this
-distribution through sequential tree construction.
+- **DT-GFN**: sampling Bayesian decision trees from the
+  posterior $p(T \mid D) \propto p(D \mid T)\, p(T)$.
+- **Local search for GFlowNets**: refining sampled objects to
+  improve reward discovery and diversity.
