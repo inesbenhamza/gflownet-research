@@ -1,0 +1,21 @@
+
+---
+title: "Research Progress"
+---
+
+This section documents ongoing DT-GFN research.
+
+## Research directions
+
+| Topic | Status |
+|---|---|
+| Categorical splitting strategies | Exploring |
+| Posterior accuracy | Planned |
+| Uncertainty quantification | Planned |
+| improved scalability | Planned |
+| local search | Planned |
+
+## Experiments
+
+Each experiment will document its research question,
+methodology, results, limitations, and next steps.

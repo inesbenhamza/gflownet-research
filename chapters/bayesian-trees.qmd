@@ -1,0 +1,26 @@
+
+---
+title: "Bayesian Decision Trees"
+---
+
+# Introduction
+
+A Bayesian decision tree defines a posterior
+distribution over possible decision-tree structures.
+
+Instead of selecting a single optimal tree, we
+consider multiple trees weighted by their posterior
+probabilities.
+
+## Bayesian Posterior
+
+$$
+p(T \mid D) =
+\frac{p(D \mid T)p(T)}{p(D)}
+$$
+
+## Why use Bayesian decision trees?
+
+- Account for uncertainty in tree structure.
+- Average predictions across multiple trees.
+- Incorporate prior preferences for simpler trees.

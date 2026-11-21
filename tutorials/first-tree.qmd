@@ -1,0 +1,16 @@
+
+---
+title: "Your First Bayesian Tree"
+---
+
+In this tutorial, we'll construct a small decision
+tree and compute its Bayesian score.
+
+## Learning objectives
+
+- Generate a synthetic classification dataset.
+- Define candidate tree structures.
+- Compute their marginal likelihoods.
+- Compare their posterior weights.
+
+*Executable experiments coming next.*

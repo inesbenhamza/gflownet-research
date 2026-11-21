@@ -1,0 +1,52 @@
+project:
+  type: website
+  output-dir: _site
+
+website:
+  title: "GFlowNet Research"
+  site-url: "https://inesbenhamza.github.io/gflownet-research/"
+  repo-url: "https://github.com/inesbenhamza/gflownet-research"
+  repo-actions: [source, issue]
+  search: true
+
+  navbar:
+    left:
+      - text: Home
+        href: index.qmd
+      - text: Theory
+        href: chapters/bayesian-trees.qmd
+      - text: Tutorials
+        href: tutorials/first-tree.qmd
+      - text: Research
+        href: research/progress.qmd
+
+  sidebar:
+    style: docked
+    search: true
+    contents:
+      - text: "Home"
+        href: index.qmd
+      - section: "Part I — Foundations"
+        contents:
+          - text: "Bayesian Decision Trees"
+            href: chapters/bayesian-trees.qmd
+      - section: "Part II — Tutorials"
+        contents:
+          - text: "Your First Bayesian Tree"
+            href: tutorials/first-tree.qmd
+      - section: "Part III — Research"
+        contents:
+          - text: "Research Progress"
+            href: research/progress.qmd
+          - text: "DT-GFN"
+            href: research/DT_GFN.qmd
+          - text: "Local Search for GFlowNets"
+            href: research/local-search.qmd
+
+format:
+  html:
+    theme: cosmo
+    toc: true
+    toc-location: right
+    code-copy: true
+    smooth-scroll: true

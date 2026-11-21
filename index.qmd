@@ -1,0 +1,35 @@
+
+---
+title: "DT-GFN: Bayesian Decision Trees with GFlowNets"
+---
+
+Welcome to my tutorial and research website.
+
+This project explores how **Generative Flow Networks
+(GFlowNets)** can be used to sample Bayesian decision
+tree structures.
+
+## What you'll find here
+
+### Theory
+Mathematical foundations of Bayesian decision trees,
+GFlowNets, and trajectory balance.
+
+### Tutorials
+Step-by-step computational examples demonstrating
+tree construction, posterior sampling, and training.
+
+### Research
+Experiments on posterior accuracy, uncertainty
+quantification, and categorical splitting strategies.
+
+## The central idea
+
+We want to sample decision trees according to:
+
+$$
+p(T \mid D) \propto p(D \mid T)p(T)
+$$
+
+DT-GFN trains a GFlowNet to approximate this
+distribution through sequential tree construction.
