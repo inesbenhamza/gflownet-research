@@ -14,6 +14,8 @@ website:
       - text: Home
         href: index.qmd
       - text: Theory
+        href: chapters/gflownets.qmd
+      - text: Decision Trees
         href: chapters/bayesian-trees.qmd
       - text: Tutorials
         href: tutorials/first-tree.qmd
@@ -28,6 +30,8 @@ website:
         href: index.qmd
       - section: "Part I — Foundations"
         contents:
+          - text: "GFlowNets"
+            href: chapters/gflownets.qmd
           - text: "Bayesian Decision Trees"
             href: chapters/bayesian-trees.qmd
       - section: "Part II — Tutorials"

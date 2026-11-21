@@ -1,0 +1,143 @@
+---
+title: "Generative Flow Networks"
+---
+
+## Goal
+
+A **Generative Flow Network (GFlowNet)** learns to sample
+discrete objects $x \in \mathcal{X}$ with probability
+proportional to a non-negative reward:
+
+$$
+P(x) = \frac{R(x)}{Z}, \qquad Z = \sum_{x \in \mathcal{X}} R(x).
+$$
+
+Unlike reward maximization, the goal is not to find the single
+best object but to sample *many* good, diverse objects, each in
+proportion to its reward. Objects are built **sequentially**,
+one action at a time.
+
+## States, actions, and trajectories
+
+The construction process is a directed acyclic graph (DAG)
+$G = (\mathcal{S}, \mathcal{A})$:
+
+- $s_0$ is the **initial state** (the empty object).
+- Each edge $s \to s'$ is an **action** that adds to the object.
+- **Terminal states** $x \in \mathcal{X}$ are complete objects.
+- A **trajectory** is a complete path
+  $\tau = (s_0 \to s_1 \to \dots \to s_n = x)$.
+
+Because the graph is a DAG rather than a tree, many trajectories
+can lead to the same object $x$.
+
+## Forward and backward policies
+
+A GFlowNet learns a **forward policy** $P_F(s' \mid s)$ that
+chooses the next action. Sampling a trajectory gives
+
+$$
+P_F(\tau) = \prod_{t=0}^{n-1} P_F(s_{t+1} \mid s_t),
+$$
+
+and the probability of ending at $x$ sums over every way of
+building it:
+
+$$
+P_F^{\top}(x) = \sum_{\tau \to x} P_F(\tau).
+$$
+
+The sum is usually intractable, so training uses a
+**backward policy** $P_B(s \mid s')$, a distribution over the
+parents of each state, to assign credit along trajectories.
+
+## Flows
+
+The name comes from viewing the DAG as a network of pipes. A
+non-negative **flow** $F$ enters at $s_0$ and exits at the
+terminal states:
+
+- the total flow is $F(s_0) = Z$,
+- the flow out through terminal state $x$ equals $R(x)$,
+- flow is conserved at every intermediate state.
+
+If these conditions hold, following edges in proportion to
+their flow samples $x$ with probability $R(x)/Z$.
+
+## Training objectives
+
+Each objective is a consistency condition that holds exactly
+when the sampler is correct. Training minimizes its squared
+violation in log space.
+
+### Flow matching
+
+For every non-initial state, inflow equals outflow:
+
+$$
+\sum_{s \to s'} F(s \to s') = \sum_{s' \to s''} F(s' \to s''),
+$$
+
+with terminal outflow equal to $R(x)$.
+
+### Detailed balance
+
+For every edge $s \to s'$, with $F(x) = R(x)$ at terminal states:
+
+$$
+F(s)\, P_F(s' \mid s) = F(s')\, P_B(s \mid s').
+$$
+
+### Trajectory balance
+
+For every complete trajectory $\tau$ ending in $x$:
+
+$$
+Z \prod_{t=0}^{n-1} P_F(s_{t+1} \mid s_t)
+= R(x) \prod_{t=0}^{n-1} P_B(s_t \mid s_{t+1}).
+$$
+
+This gives the loss
+
+$$
+\mathcal{L}_{\text{TB}}(\tau) =
+\left( \log Z + \sum_t \log P_F(s_{t+1} \mid s_t)
+- \log R(x) - \sum_t \log P_B(s_t \mid s_{t+1}) \right)^2,
+$$
+
+where $\log Z$ is a learned scalar. Trajectory balance works on
+whole trajectories, so credit reaches early actions directly.
+This usually makes training faster than with local objectives.
+
+## Training loop
+
+1. Sample trajectories with $P_F$, plus exploration if needed
+   (for example $\epsilon$-greedy or tempering).
+2. Compute the reward $R(x)$ of each terminal object.
+3. Take a gradient step on the chosen loss.
+
+The objectives are **off-policy**: any trajectories with full
+support can be used to train, including replayed or locally
+refined samples. This is what makes local search
+(Part III) a natural add-on.
+
+## Connection to Bayesian decision trees
+
+To sample decision trees from the posterior:
+
+| GFlowNet | Decision trees |
+|---|---|
+| state $s$ | partially built tree |
+| action | split a leaf (feature, threshold) or stop |
+| terminal object $x$ | complete tree $T$ |
+| reward $R(x)$ | $p(D \mid T)\, p(T)$ |
+| partition function $Z$ | marginal likelihood $p(D)$ |
+
+A trained GFlowNet then samples $T \sim p(T \mid D)$ without
+running MCMC. See [Bayesian Decision Trees](bayesian-trees.qmd).
+
+## References
+
+- Bengio et al. (2021). [Flow Network based Generative Models for Non-Iterative Diverse Candidate Generation](https://arxiv.org/abs/2106.04399).
+- Bengio et al. (2023). [GFlowNet Foundations](https://arxiv.org/abs/2111.09266).
+- Malkin et al. (2022). [Trajectory Balance: Improved Credit Assignment in GFlowNets](https://arxiv.org/abs/2201.13259).
