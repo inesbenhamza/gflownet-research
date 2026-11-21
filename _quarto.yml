@@ -32,6 +32,8 @@ website:
         contents:
           - text: "GFlowNets"
             href: chapters/gflownets.qmd
+          - text: "Local Search GFlowNets"
+            href: chapters/local-search-gflownets.qmd
           - text: "Bayesian Decision Trees"
             href: chapters/bayesian-trees.qmd
       - section: "Part II — Tutorials"
