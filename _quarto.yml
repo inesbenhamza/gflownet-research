@@ -18,7 +18,7 @@ website:
       - text: Decision Trees
         href: chapters/bayesian-trees.qmd
       - text: Tutorials
-        href: tutorials/first-tree.qmd
+        href: tutorials/gflownet-envs.qmd
       - text: Research
         href: research/progress.qmd
 
@@ -38,6 +38,8 @@ website:
             href: chapters/bayesian-trees.qmd
       - section: "Part II — Tutorials"
         contents:
+          - text: "Environments in the gflownet library"
+            href: tutorials/gflownet-envs.qmd
           - text: "Your First Bayesian Tree"
             href: tutorials/first-tree.qmd
       - section: "Part III — Research"

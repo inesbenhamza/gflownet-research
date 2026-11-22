@@ -1,0 +1,605 @@
+---
+title: "Environments in the gflownet library"
+---
+
+This tutorial explains how environments work in the
+[`gflownet`](https://github.com/alexhernandezgarcia/gflownet) library:
+the interface every environment implements, simple environments
+(`Grid`, `Choice`, `Sequence`), and the **composite** meta-environments
+that build new environments out of existing ones (`Stack`, `SetFix`,
+`SetFlex`, and `Choices`), and finally the decision tree environment
+(`Tree`, its node types, and the categorical `SubsetSequential` split).
+
+::: {.callout-note}
+All outputs below are real outputs from running the code against the
+library (commit `7687f2d`; the categorical tree code is the uncommitted
+`categorical_node.py` / `subset_sequential.py` on top of it). Imports assume the repository root is on
+your Python path.
+:::
+
+## What an environment is
+
+An environment defines the DAG that the GFlowNet samples from (see
+[GFlowNets](../chapters/gflownets.qmd)):
+
+| GFlowNet concept | In the library |
+|---|---|
+| initial state $s_0$ | `env.source` |
+| current state | `env.state` |
+| actions | `env.action_space`, a list of tuples |
+| stop action | `env.eos` (end of sequence) |
+| terminal state reached | `env.done` |
+| forward transition | `env.step(action)` |
+| backward transition | `env.step_backwards(action)` |
+| parents of a state | `env.get_parents()` |
+
+Every environment subclasses `GFlowNetEnv` (`gflownet/envs/base.py`).
+
+## The core functions
+
+### Action space and EOS
+
+`get_action_space()` returns **every** action the environment can ever
+take as a list of tuples, including `eos`. It is fixed: the policy
+network outputs one logit per action, so its size never changes.
+
+### Masks of invalid actions
+
+Because the action space is fixed, a state cannot remove actions it
+doesn't allow. Instead it **masks** them:
+
+- `get_mask_invalid_actions_forward()` returns one boolean per action.
+  `True` means *invalid* from the current state.
+- `get_mask_invalid_actions_backward()` returns the same for backward
+  actions. The default implementation derives it from `get_parents()`.
+
+Masks flag **invalid** actions. `False` means "not known to be
+invalid", not "guaranteed valid". `get_valid_actions()` returns the
+actions whose mask is `False`.
+
+### Stepping
+
+- `step(action)` applies a forward action and returns
+  `(new_state, action, valid)`. If the action is invalid, the state is
+  unchanged and `valid` is `False`.
+- `step_backwards(action)` undoes an action. The default implementation
+  uses `get_parents()`.
+- `get_parents()` returns all parent states together with the action
+  that leads from each one to the current state. It is what makes the
+  backward policy $P_B$ possible.
+
+### Representations
+
+The same state is converted into different formats for different
+consumers:
+
+- `state2policy()` / `states2policy()`: the input to the policy
+  network (for example one-hot encoded).
+- `state2proxy()` / `states2proxy()`: the input to the **proxy**, the
+  model that scores objects and from which the reward is computed.
+- `state2readable()`: a human-readable string, for logging.
+
+The batched `states2*` versions are what training uses.
+
+### Other useful functions
+
+- `reset()` returns to `source`.
+- `is_source()` checks whether a state is the source.
+- `max_traj_length` gives an upper bound on the trajectory length.
+- `step_random()` and `trajectory_random()` take random valid actions,
+  which helps for testing.
+
+## Example: `Grid`
+
+The hyper-grid is the "hello world" of GFlowNets. A state is a vector
+of coordinates, and each action increments one dimension.
+
+```python
+from gflownet.envs.grid import Grid
+
+env = Grid(n_dim=2, length=3)
+env.source        # [0, 0]
+env.eos           # (0, 0)
+env.action_space  # [(0, 1), (1, 0), (0, 0)]
+```
+
+The last action, `(0, 0)`, is the EOS. Let's build a trajectory:
+
+```python
+env.step((1, 0))   # ([1, 0], (1, 0), True)
+env.step((0, 1))   # ([1, 1], (0, 1), True)
+env.step((1, 0))   # ([2, 1], (1, 0), True)
+
+env.get_mask_invalid_actions_forward()
+# [False, True, False]  -> (1, 0) is invalid: dimension 0 is at the edge
+
+env.get_parents()
+# ([[2, 0], [1, 1]], [(0, 1), (1, 0)])
+```
+
+State `[2, 1]` has **two parents**, which is why GFlowNets need a
+backward policy: many trajectories lead to the same object.
+
+```python
+env.step(env.eos)  # ([2, 1], (0, 0), True)
+env.done           # True
+
+env.state2policy() # tensor([0., 0., 1., 0., 1., 0.])  one-hot per dimension
+env.state2proxy()  # tensor([[1., 0.]])  coordinates mapped to [-1, 1]
+```
+
+## Example: `Choice`
+
+`Choice` picks **one** option from a set. From the source you choose
+an option, and then only EOS is valid. On its own it's trivial, but it
+is the building block of `Choices`.
+
+```python
+from gflownet.envs.choice import Choice
+
+env = Choice(options=["red", "green", "blue"])
+env.source        # [0]       0 = nothing chosen yet
+env.action_space  # [(1,), (2,), (3,), (-1,)]   options are 1-indexed, EOS = (-1,)
+
+env.step((2,))    # ([2], (2,), True)
+env.step(env.eos) # ([2], (-1,), True)
+env.state2readable()  # 'green'
+```
+
+## Example: sequences
+
+`SequenceBase` (`gflownet/envs/sequences/base.py`) builds sequences one
+token at a time, from left to right. Specific environments such as DNA
+and SELFIES subclass it.
+
+```python
+from gflownet.envs.sequences.base import SequenceBase
+
+env = SequenceBase(tokens=[0, 1], min_length=1, max_length=3, device="cpu")
+env.source        # tensor([0, 0, 0])   padded to max_length, 0 = [PAD]
+env.action_space  # [(1,), (2,), (-1,)] action (i,) appends token number i
+
+env.step((2,))    # (tensor([2, 0, 0]), (2,), True)   appends token 1
+env.step((1,))    # (tensor([2, 1, 0]), (1,), True)   appends token 0
+env.step(env.eos) # stop: EOS is only allowed once length >= min_length
+env.state2readable()  # '1 0'
+```
+
+States store token **indices**: index 0 is the padding token, and
+tokens are indexed from 1.
+
+## Composite environments
+
+Many real objects combine several parts: a crystal is a composition
+plus a lattice, and a point cloud is a set of points. Instead of
+writing each one from scratch, the library provides
+**meta-environments** (`gflownet/envs/composite/`) that combine existing
+**sub-environments**.
+
+They share a few conventions (`CompositeBase`):
+
+- **States are dictionaries.** Integer keys `0, 1, …` hold each
+  sub-environment's state. Keys starting with `_` hold metadata, such
+  as `_active`, the index of the active sub-environment.
+- **Actions are padded.** Each action is prefixed with the index of its
+  *unique* environment and zero-padded to a common length. For example,
+  `(1, 0, 1)` means "action `(0, 1)` of unique environment 1".
+- **Identical sub-environments share actions.** Two identical `Grid`s
+  count as one *unique* environment, so their actions appear only once
+  in the action space and apply to whichever one is active.
+- **Constraints.** Sub-classes can override
+  `_apply_constraints_forward/backward` to make one sub-environment
+  depend on another.
+
+### `Stack`: sub-environments in a fixed order
+
+A `Stack` runs its sub-environments **sequentially**. The first must
+finish (perform its EOS) before the second becomes active, and so on.
+The Stack's EOS is the EOS of the last sub-environment.
+
+```python
+from gflownet.envs.composite.stack import Stack
+
+env = Stack(subenvs=[Choice(options=["a", "b"]), Grid(n_dim=2, length=3)])
+env.source  # {'_active': 0, 0: [0], 1: [0, 0]}
+env.eos     # (1, 0, 0)  -> the Grid's EOS, prefixed with unique index 1
+env.action_space
+# [(0, 1, 0), (0, 2, 0), (0, -1, 0),   <- Choice actions (prefix 0)
+#  (1, 0, 1), (1, 1, 0), (1, 0, 0)]    <- Grid actions   (prefix 1)
+
+env.get_valid_actions()  # [(0, 1, 0), (0, 2, 0)]  only the Choice is active
+env.step((0, 1, 0))      # choose 'a'
+env.step((0, -1, 0))     # Choice EOS -> {'_active': 1, ...}: the Grid takes over
+env.get_valid_actions()  # [(1, 0, 1), (1, 1, 0), (1, 0, 0)]
+env.step((1, 1, 0))
+env.step((1, 0, 0))      # global EOS -> env.done == True
+env.state2readable()     # 'Active: 1; a; [1 0]'
+```
+
+**When to use it:** the object has distinct parts that make sense to
+build in a fixed order. Constraints let a later part depend on an
+earlier one, for example a lattice that depends on the chosen symmetry.
+
+### `SetFix` and `SetFlex`: sets without order
+
+Set environments combine sub-environments **without a fixed order**.
+The policy decides which sub-environment to work on next. Both inherit
+from `BaseSet`.
+
+To know which sub-environment an action belongs to, Sets add
+**toggle meta-actions** of the form `(-1, idx, 0, …)`, which activate
+(and later deactivate) a sub-environment. The global EOS is
+`(-1, -1, …)`. The `can_alternate_subenvs` option controls how strict
+this is:
+
+- `False`: toggle a sub-environment, perform its actions until its EOS,
+  then toggle it off. Toggles refer to *unique* environments.
+- `True`: actions of different sub-environments can be interleaved.
+  Every single sub-environment action is wrapped in toggle on/off, and
+  toggles refer to individual sub-environments.
+
+States also hold `_dones` (which sub-environments are finished),
+`_toggle`, `_envs_unique` and `_keys`. `_keys` handles permutations,
+since a set is invariant to the order of its elements.
+
+#### `SetFix`: a fixed set
+
+Every trajectory uses **all** the sub-environments given at
+initialization.
+
+```python
+from gflownet.envs.composite.setfix import SetFix
+
+env = SetFix(
+    subenvs=[Grid(n_dim=2, length=3), Grid(n_dim=2, length=3)],
+    can_alternate_subenvs=False,
+)
+env.source
+# {'_active': -1, '_toggle': 0, '_dones': [0, 0], '_envs_unique': [0, 0],
+#  '_keys': [0, 1], 0: [0, 0], 1: [0, 0]}
+env.action_space
+# [(-1, 0, 0),              <- toggle unique env 0 (both Grids share it)
+#  (-1, -1, -1),            <- global EOS
+#  (0, 0, 1), (0, 1, 0), (0, 0, 0)]  <- Grid actions, shared by both Grids
+env.get_valid_actions()  # [(-1, 0, 0)]  first, activate a Grid
+```
+
+A random trajectory:
+
+```text
+(-1,0,0)  toggle on Grid
+(0,1,0) (0,0,1) (0,1,0)  move it
+(0,0,0)   its EOS
+(-1,0,0)  toggle off
+(-1,0,0)  toggle on the next Grid
+(0,1,0) (0,1,0) (0,0,1) (0,0,1)
+(0,0,0)   its EOS
+(-1,0,0)  toggle off
+(-1,-1,-1) global EOS
+final: {..., '_dones': [1, 1], 0: [2, 1], 1: [2, 2]}
+```
+
+#### `SetFlex`: a variable-size set
+
+`SetFlex` allows a **variable number** of elements, up to
+`max_elements`, drawn from a collection of unique environment types
+(`envs_unique`). Unused slots are marked `-1` in `_envs_unique`, and
+the source contains no sub-states at all.
+
+```python
+from gflownet.envs.composite.setflex import SetFlex
+
+env = SetFlex(
+    max_elements=3,
+    envs_unique=[Choice(options=["a", "b"]), Grid(n_dim=2, length=3)],
+    do_random_subenvs=True,  # sample a random set of subenvs (for testing)
+    can_alternate_subenvs=False,
+)
+env.source
+# {'_active': -1, '_toggle': 0, '_dones': [1, 1, 1],
+#  '_envs_unique': [-1, -1, -1], '_keys': [0, 1, 2]}
+
+env.state  # after reset with random subenvs: one Grid and one Choice
+# {'_active': -1, '_toggle': 0, '_dones': [0, 0, 1],
+#  '_envs_unique': [1, 0, -1], '_keys': [0, 1, -1], 0: [0, 0], 1: [0]}
+```
+
+The set of sub-environments for a trajectory acts as a **condition**.
+It can be set with `set_subenvs()`, or sampled randomly with
+`do_random_subenvs=True`.
+
+`make_set(is_flexible, ...)` in `gflownet/envs/composite/utils.py` is a
+factory that returns a `SetFlex` if `is_flexible=True` and a `SetFix`
+otherwise.
+
+### `Choices`: picking several options
+
+`Choices` (`gflownet/envs/choices.py`) selects `max_selection` options
+from a set. It is a Set of `Choice` sub-environments:
+
+- `with_replacement=True`: options can repeat, and there are no
+  constraints.
+- `with_replacement=False`: once an option is chosen, constraints
+  remove it from the remaining `Choice` sub-environments.
+- `can_select_fewer_than_max=True` would use a `SetFlex`, but it is
+  **not implemented yet**. Currently `Choices` always returns a
+  `ChoicesSetFix`.
+
+```python
+from gflownet.envs.choices import Choices
+
+env = Choices(options=["x", "y", "z"], max_selection=2, with_replacement=False)
+type(env).__name__   # 'ChoicesSetFix'
+env.source
+# {'_active': -1, '_toggle': 0, '_dones': [0, 0], '_envs_unique': [0, 0],
+#  '_keys': [0, 1], 0: [0], 1: [0]}
+
+# ... after a random trajectory:
+env.get_options()    # (3, 2)  -> 'z' and 'y', never the same option twice
+```
+
+## The decision tree environment
+
+The tree environments (`gflownet/envs/tree/`) put all of the above
+together. A `Tree` is a composite environment whose sub-environments
+are **nodes**, and each node is a `Stack` of a feature `Choice` and a
+split stage. See [Bayesian Decision Trees](../chapters/bayesian-trees.qmd)
+for the model and the reward.
+
+| File | Contents |
+|---|---|
+| `tree.py` | `Tree`, the composite environment that grows the tree |
+| `node.py` | `DecisionTreeNode`: feature + continuous threshold |
+| `discrete_node.py` | `DecisionTreeNodeDiscrete`: feature + threshold on a 1D `Grid` |
+| `discrete_choice_node.py` | `DecisionTreeNodeDiscreteChoice`: feature + threshold picked by a `Choice` |
+| `categorical_node.py` | `DecisionTreeNodeCategoricalSequential`: feature + subset of categories |
+| `subset_sequential.py` | `SubsetSequential`, the sub-environment that builds that subset |
+
+### `Tree`: growing the tree one node at a time
+
+`Tree` subclasses `CompositeBase` and follows the same toggle pattern
+as a Set with `can_alternate_subenvs=False`:
+
+1. **Idle**: pick a leaf position to expand with a toggle
+   `(-1, k, 0, …)`. This creates node `k` at its source.
+2. **Building**: perform node actions `(0, *node_action)` until the
+   node is done.
+3. **Node done**: toggle `(-1, k, 0, …)` again to go back to idle.
+4. Repeat, or take the global EOS `(-1, -1, 0, …)`, which is only
+   valid once the root is done.
+
+Node positions use **breadth-first indexing**: the root is `0`, the
+children of `k` are `2k + 1` (left) and `2k + 2` (right), and the
+depth of `k` is $\lfloor \log_2(k+1) \rfloor$. With `max_depth = d`
+there are at most $2^d - 1$ internal nodes. A position is expandable if
+it doesn't exist yet and its parent is done.
+
+The state is a dictionary: `_active` (the node being built, or `-1`),
+`_dones` (one flag per position) and one integer key per existing node,
+holding that node's `Stack` state. All nodes share **one** `node_env`
+instance, chosen with `node_type`:
+
+| `node_type` | Split | Node class |
+|---|---|---|
+| `"continuous"` (default) | `x[f] <= t`, `t` from a `ContinuousCube` | `DecisionTreeNode` |
+| `"discrete"` | `x[f] <= t`, `t` on a 1D `Grid` | `DecisionTreeNodeDiscrete` |
+| `"discrete_choice"` | `x[f] <= t`, `t` picked by one `Choice` | `DecisionTreeNodeDiscreteChoice` |
+| `"categorical_sequential"` | `x[f] in L`, `L` built by `SubsetSequential` | `DecisionTreeNodeCategoricalSequential` |
+
+**Ancestor constraints.** A split must be consistent with the splits
+above it. `Tree` computes what is still allowed at the active node and
+publishes it on the shared `node_env` through the
+`_apply_constraints_forward` hook of `CompositeBase`:
+
+- numeric nodes get **threshold bounds** (`_get_threshold_bounds`): an
+  ancestor `x[f] <= t` gives an upper bound `t` in its left subtree and
+  a lower bound `t` in its right subtree. The discrete nodes mask the
+  thresholds outside the bounds, and the continuous node rescales its
+  `[0, 1]` cube value into them when the node is done.
+- categorical nodes get **available categories**
+  (`_get_available_categories`, below).
+
+Since the constraints live on a shared instance, `Tree` re-applies them
+for the input state whenever it computes a mask for a state other than
+`self.state`, and restores them afterwards.
+
+### `SubsetSequential`: building a subset in canonical order
+
+`SubsetSequential(n_options)` builds a subset of
+$\{0, \dots, n-1\}$ one element at a time, **in increasing order**,
+then stops. The state is a list of bits, and actions are `(c + 1,)`
+(add element `c`, 1-based like `Choice`) plus the EOS `(-1,)`.
+
+```python
+from gflownet.envs.tree.subset_sequential import SubsetSequential
+
+env = SubsetSequential(n_options=4)
+env.source        # [0, 0, 0, 0]   empty subset
+env.action_space  # [(1,), (2,), (3,), (4,), (-1,)]
+env.get_mask_invalid_actions_forward()
+# [False, False, False, False, True]   STOP needs a non-empty subset
+
+env.step((2,))    # ([0, 1, 0, 0], (2,), True)   add element 1
+env.get_mask_invalid_actions_forward()
+# [True, True, False, False, False]    only elements > 1 can be added now
+env.step((4,))    # ([0, 1, 0, 1], (4,), True)   add element 3
+env.get_parents() # ([[0, 1, 0, 0]], [(4,)])     exactly ONE parent
+env.step(env.eos)
+env.state2readable()  # '{1,3}'
+env.state2policy()    # tensor([0., 1., 0., 1.])
+env.max_traj_length   # 5   (n_options + 1)
+```
+
+The increasing-order rule is what matters: each subset is reached by
+**exactly one** trajectory, and every state has exactly one parent
+(remove its largest element). The DAG is a tree, so the backward policy
+is trivial. Building a set in free order would instead give $|L|!$
+trajectories per subset.
+
+`SubsetSequential` only enforces this structural rule. Rules that
+depend on context (which categories reach a node, which subsets are
+valid splits) are added by the parent node on top of its mask.
+
+### `DecisionTreeNodeCategoricalSequential`: subset splits
+
+This node splits a **categorical** feature with `x[f] in L`: samples
+whose category is in `L` go left, the rest go right. It is a `Stack` of
+two stages:
+
+1. stage 0, a `Choice` over the features;
+2. stage 1, a `SubsetSequential` with `max(n_categories)` slots that
+   builds `L`.
+
+Categories are integer codes `0, …, k_f - 1`. When features have
+different numbers of categories, the slots beyond `k_f` are masked.
+
+```python
+import numpy as np
+from gflownet.envs.tree.categorical_node import DecisionTreeNodeCategoricalSequential
+
+node = DecisionTreeNodeCategoricalSequential(
+    features=["color", "size", "shape"], n_categories=[4, 2, 3]
+)
+node.source        # {'_active': 0, 0: [0], 1: [0, 0, 0, 0]}
+node.action_space
+# [(0, 1), (0, 2), (0, 3), (0, -1),            <- feature Choice
+#  (1, 1), (1, 2), (1, 3), (1, 4), (1, -1)]    <- SubsetSequential (4 slots)
+
+node.step((0, 1))          # choose 'color'
+node.step((0, -1))         # Choice EOS -> stage 1 is active
+node.get_valid_actions()   # [(1, 1)]   forced: the first category goes left
+node.step((1, 1))          # L = {0}
+node.get_valid_actions()   # [(1, 2), (1, 3), (1, 4), (1, -1)]
+node.step((1, 3))          # L = {0, 2}
+node.get_valid_actions()   # [(1, 4), (1, -1)]
+node.step((1, -1))         # STOP -> node.done == True
+
+node.state2readable()      # 'Feature: color; Subset: 0,2'
+node.get_threshold()       # 5   = bitmask of L: 2**0 + 2**2
+node.format_split(5)       # 'in {0,2}'
+node.goes_left(np.array([0, 1, 2, 3]), 5)
+# [ True False  True False]
+```
+
+**The split value is a bitmask.** Category `c` is in `L` iff bit `c`
+is 1, so `{0, 2}` is stored as `1 + 4 = 5`. The node exposes it through
+`get_threshold()`, the same name the numeric nodes use, so the `Tree`,
+the proxy and `eval_tree.py` can read splits from any node type. They
+check `is_categorical` and route samples with `goes_left` instead of
+`<=`.
+
+**The masks.** Let `A` be the categories of the chosen feature that
+can still reach the node (by default all of them). On top of the
+`SubsetSequential` rule, the node enforces:
+
+- a feature can only be chosen if it has at least 2 available
+  categories, otherwise every sample goes to the same side;
+- the first category added is `min(A)`. `L` and `A - L` define the same
+  partition with the children swapped, so fixing which side `min(A)`
+  goes to removes the duplicate;
+- only categories of `A` can be added, in increasing order;
+- a category can't be added if `L` would become `A`, because the right
+  child would be empty.
+
+This gives $2^{|A|-1} - 1$ distinct splits per feature, each reached by
+one trajectory. Enumerating every trajectory confirms it:
+
+| `A` | Splits | All the `L` |
+|---|---|---|
+| `{0, 1}` | 1 | `{0}` |
+| `{0, 1, 2}` | 3 | `{0}`, `{0,1}`, `{0,2}` |
+| `{0, 1, 2, 3}` | 7 | `{0}`, `{0,1}`, `{0,2}`, `{0,3}`, `{0,1,2}`, `{0,1,3}`, `{0,2,3}` |
+| `{1, 3}` | 1 | `{1}` |
+
+The trade-off: the policy only needs $k + 1$ outputs for the subset
+stage instead of one per subset, but a node takes $|L| + 3$ steps
+(feature, feature EOS, $|L|$ categories, STOP) instead of 3.
+
+### Categorical constraints in the `Tree`
+
+An ancestor `x[f] in L` restricts the categories of `f` below it: its
+left subtree keeps `A & L` and its right subtree keeps `A - L`.
+`Tree._get_available_categories(k, state)` walks up from `k` and
+applies these updates, and the result is published on the node with
+`set_available_categories()`, the categorical counterpart of
+`set_threshold_bounds()`. A leaf position is only expandable if some
+feature still has 2 or more available categories (`can_split`).
+
+```python
+from gflownet.envs.tree.tree import Tree
+
+tree = Tree(
+    max_depth=2,
+    node_type="categorical_sequential",
+    data_path="tests/data/tree/synthetic_cat/cat_subset_1.csv",
+)
+tree.node_env.n_categories  # [4, 3, 3]   derived from the data as max code + 1
+tree.scaler                 # None        categorical codes are never scaled
+tree.eos                    # (-1, -1, 0)
+
+# Root: color in {0, 2}
+for a in [(-1, 0, 0), (0, 0, 1), (0, 0, -1),
+          (0, 1, 1), (0, 1, 3), (0, 1, -1), (-1, 0, 0)]:
+    tree.step(a)
+tree.get_valid_actions()    # [(-1, 1, 0), (-1, 2, 0), (-1, -1, 0)]
+
+tree._get_available_categories(1, tree.state)  # [{0, 2}, {0, 1, 2}, {0, 1, 2}]
+tree._get_available_categories(2, tree.state)  # [{1, 3}, {0, 1, 2}, {0, 1, 2}]
+
+# Expand the left child and choose color again
+tree.step((-1, 1, 0)); tree.step((0, 0, 1)); tree.step((0, 0, -1))
+tree.get_valid_actions()    # [(0, 1, 1)]   L = {0}: the only split of A = {0, 2}
+```
+
+Node 1 can still split on `color`, but only between categories 0 and
+2, since 1 and 3 went right at the root.
+
+A few things to keep in mind:
+
+- `is_categorical` applies to the whole tree, so every feature must be
+  categorical. Mixed numeric and categorical data is not supported yet.
+- If `n_categories` isn't passed in `node_kwargs`, it is read from the
+  data (train and test) as `max code + 1`, so codes must be
+  `0, …, k - 1`.
+- `MAX_CATEGORIES = 64` caps the categories per feature.
+- The `synthetic_cat` datasets (`cat_onevsrest_*`, `cat_subset_*`,
+  `cat_depth2_*`) and `tests/gflownet/envs/test_tree_categorical.py`
+  cover this node type.
+
+## Choosing an environment
+
+| You want to sample… | Use |
+|---|---|
+| one option from a list | `Choice` |
+| $k$ options, with or without repetition | `Choices` |
+| a sequence of tokens | a `SequenceBase` subclass |
+| an object with parts built in a fixed order | `Stack` |
+| a fixed collection of parts, in any order | `SetFix` |
+| a variable number of parts | `SetFlex` |
+| a non-empty subset, one trajectory per subset | `SubsetSequential` |
+| a decision tree | `Tree` with the right `node_type` |
+| something new | subclass `GFlowNetEnv` (below) |
+
+## Writing your own environment
+
+Minimum checklist for a discrete environment that subclasses
+`GFlowNetEnv`:
+
+1. In `__init__`, set `self.source` and `self.eos`, then call
+   `super().__init__(**kwargs)`.
+2. `get_action_space()`: all actions, including `eos`.
+3. `get_mask_invalid_actions_forward()`: which actions are invalid
+   from a state.
+4. `step(action)`: start with `self._pre_step(...)` (the generic
+   checks), then apply the action, and set `self.done = True` on EOS.
+5. `get_parents()`: needed for backward transitions and the default
+   backward mask. Alternatively, implement `step_backwards()` and
+   `get_mask_invalid_actions_backward()` directly, which is often
+   faster.
+6. `states2policy()` and `states2proxy()`: how states are fed to the
+   policy and to the proxy.
+7. *(Recommended)* `_get_max_trajectory_length()` and
+   `state2readable()`.
+
+The `Grid` (`gflownet/envs/grid.py`) is the best reference to copy
+from.
