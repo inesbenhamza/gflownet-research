@@ -10,12 +10,11 @@ permissions:
   id-token: write
 concurrency:
   group: pages
-  cancel-in-progress: true
+  # Don't cancel a deployment that is already running
+  cancel-in-progress: false
 jobs:
-  deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+  # Render the site and upload it as the "github-pages" artifact
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -25,5 +24,13 @@ jobs:
       - uses: actions/upload-pages-artifact@v5
         with:
           path: _site
+  # Deploy in a separate job, once the artifact upload has fully completed
+  deploy:
+    needs: build
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
       - uses: actions/deploy-pages@v5
         id: deployment
