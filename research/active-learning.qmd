@@ -1,0 +1,220 @@
+---
+title: "Active Learning and Bayesian Optimization with DT-GFN"
+---
+
+Two extensions of DT-GFN to sequential experimental design: **pool-based
+active learning** (Idea 1) and **Bayesian optimization** (Idea 2). Both
+use the posterior tree samples that DT-GFN already produces.
+
+## Research question
+
+**Can DT-GFN posterior samples support reliable sequential experimental
+design, and how do posterior approximation errors affect acquisition
+choices and downstream sample efficiency?**
+
+## Common foundation: posterior-sampled regression trees
+
+Let $D = \{(x_i, y_i)\}_{i=1}^N$ and let $T$ denote a Bayesian regression
+tree. DT-GFN learns $q_\phi(T) \approx p(T \mid D)$ and samples
+$T_1, \ldots, T_M \sim q_\phi$. Integrating out the leaf parameters as
+appropriate gives the predictive distribution
+
+$$
+\hat p(y \mid x, D) = \frac{1}{M} \sum_{m=1}^M p(y \mid x, T_m, D).
+$$ {#eq-predictive}
+
+Posterior weighting is implicit in the sampling frequencies. The result
+approximates the predictive distribution under $q_\phi$, which approaches
+Bayesian model averaging as $q_\phi$ approaches the target posterior.
+
+## Idea 1: pool-based active learning
+
+**Goal.** Given an unlabeled pool $\mathcal U$, query an oracle for the
+labels that best improve prediction or reduce uncertainty, under a
+limited labeling budget.
+
+### Acquisition functions
+
+The predictive variance decomposes as
+
+$$
+\operatorname{Var}(Y \mid x, D)
+= \underbrace{\mathbb E_{T \mid D}\big[\operatorname{Var}(Y \mid x, T, D)\big]}_{\text{within-tree}}
++ \underbrace{\operatorname{Var}_{T \mid D}\big[\mathbb E(Y \mid x, T, D)\big]}_{\text{between-tree}}.
+$$ {#eq-var-decomp}
+
+The first term can include uncertainty in the integrated-out leaf
+parameters.
+
+- **Predictive differential entropy:** $a_h(x) = h[p(y \mid x, D)]$.
+- **Tree-structure information gain:**
+
+$$
+a_{\mathrm{MI}}(x) = I(Y; T \mid x, D)
+= h[p(y \mid x, D)] - \mathbb E_{T \mid D}\big[h[p(y \mid x, T, D)]\big].
+$$ {#eq-mi}
+
+For regression, these entropies require well-defined predictive densities
+and generally need numerical estimation of mixture entropies.
+
+**Loop.** Select $x_{\mathrm{next}} = \arg\max_{x \in \mathcal U} a(x)$,
+query its label, add it to $D$, and update DT-GFN.
+
+### Acquisition-function baselines
+
+| Method | Acquisition | Question tested |
+|---|---|---|
+| DT-GFN + Random | uniform random | Does active selection help? |
+| DT-GFN + Variance | predictive variance | Does selecting uncertain regression outputs help? |
+| DT-GFN + Entropy | predictive differential entropy | Does total predictive uncertainty help? |
+| DT-GFN + MI | $I(Y; T \mid x, D)$ | Does tree-structure information gain help? |
+
+Use the same DT-GFN posterior approximation, initial datasets, unlabeled
+pools and query budgets, so that only the acquisition function changes.
+
+### Alternative surrogate baselines
+
+| Surrogate | Acquisition | Role |
+|---|---|---|
+| Gaussian process | predictive variance or information gain | standard probabilistic regression baseline |
+| BART | predictive variance or an appropriately defined MI | Bayesian tree-based baseline; its additive tree model differs from single-tree DT-GFN |
+| Random forest | ensemble variance or disagreement | practical heuristic uncertainty baseline, not necessarily Bayesian |
+| DT-GFN | tree-structure MI | proposed approach |
+
+Report learning curves at matched numbers of queries. Comparing across
+surrogates changes the acquisition function and the model family at the
+same time, so use within-surrogate comparisons to isolate the effect of
+the acquisition.
+
+### Exact-posterior benchmark on enumerable tree spaces
+
+For small synthetic datasets and a restricted finite tree space
+$\mathcal T$, the normalized target posterior can be computed exactly:
+
+$$
+p(T \mid D) = \frac{R(T)}{\sum_{T' \in \mathcal T} R(T')},
+\qquad R(T) = p(D \mid T)\, p(T).
+$$ {#eq-exact-posterior}
+
+DT-GFN and exact inference use the same tree space, prior and
+likelihood. Compare:
+
+1. exact posterior + MI,
+2. DT-GFN approximate posterior + MI,
+3. DT-GFN + random.
+
+Also compare the full posterior distributions, the predictive densities
+and the acquisition rankings.
+
+**Acquisition regret.** Define the exact information-gain acquisition
+$a_{\mathrm{exact}}(x) = I_{p(T \mid D)}(Y; T \mid x, D)$ and
+
+$$
+x^*_{\mathrm{exact}} = \arg\max_{x \in \mathcal U} a_{\mathrm{exact}}(x),
+\qquad
+x^*_{\mathrm{GFN}} = \arg\max_{x \in \mathcal U} \hat a_{\mathrm{GFN}}(x).
+$$
+
+::: {.callout-important}
+## Acquisition regret
+
+$$
+r_{\mathrm{acq}} = a_{\mathrm{exact}}(x^*_{\mathrm{exact}}) - a_{\mathrm{exact}}(x^*_{\mathrm{GFN}}) \geq 0.
+$$ {#eq-regret}
+
+It measures the loss in the exact MI objective from picking the candidate
+chosen with the approximate posterior. It does **not** directly measure
+regret in prediction error.
+:::
+
+Study how the regret changes with the posterior approximation error,
+measured for example by the total variation distance
+
+$$
+D_{\mathrm{TV}}(p, q_\phi) = \frac{1}{2} \sum_{T \in \mathcal T} \big| p(T \mid D) - q_\phi(T) \big|.
+$$ {#eq-tv}
+
+If $q_\phi$ can't be evaluated directly as a normalized mass function,
+estimate its mass over the finite space from enough samples and report
+the Monte Carlo uncertainty. Keep the sampling error of the MI estimates
+separate from the systematic error of the posterior approximation.
+
+### Evaluation protocol and metrics
+
+- **Setup:** synthetic oracles $y = f(x) + \epsilon$ with known noise,
+  fixed test sets, matched initial labeled datasets, repeated seeds.
+- **When:** after each oracle query, or after each fixed batch of
+  queries.
+- **Metrics:** test RMSE / MAE, predictive negative log-likelihood,
+  predictive interval coverage, area under the learning curve.
+- **Enumerable setting, in addition:** posterior distance, agreement of
+  the MI rankings, acquisition regret, downstream learning curves.
+
+Predictive calibration and the correctness of the epistemic / aleatoric
+decomposition are separate properties. MI itself is not a calibration
+metric.
+
+## Idea 2: Bayesian optimization with DT-GFN as a surrogate
+
+**Goal.** Minimize an expensive black-box objective, using
+posterior-sampled regression trees instead of a Gaussian process as the
+surrogate.
+
+### Expected improvement
+
+For noiseless minimization with best observed value $f_{\mathrm{best}}$,
+
+$$
+\mathrm{EI}(x) = \mathbb E_{Y \sim p(y \mid x, D)}\big[(f_{\mathrm{best}} - Y)_+\big],
+\qquad (z)_+ = \max(z, 0).
+$$ {#eq-ei}
+
+It is approximated with the posterior tree samples:
+
+$$
+\widehat{\mathrm{EI}}(x) = \frac{1}{M} \sum_{m=1}^M
+\mathbb E_{Y \sim p(y \mid x, T_m, D)}\big[(f_{\mathrm{best}} - Y)_+\big].
+$$ {#eq-ei-hat}
+
+Compute the conditional EI analytically where possible, and otherwise
+sample from the leaf predictive distribution. With noisy evaluations,
+use an acquisition that accounts for the noise.
+
+### Other acquisitions
+
+UCB-style criteria, Thompson sampling and information-theoretic BO
+criteria are also possible. Maximizing $I(Y; T \mid x, D)$ mainly learns
+the tree structure, not necessarily the optimum.
+
+### Experimental loop
+
+1. Initialize a design.
+2. Fit DT-GFN and sample regression trees.
+3. Maximize the acquisition over a set of candidates.
+4. Evaluate the oracle at the chosen point and add it to the data.
+5. Repeat from 2.
+
+### Baselines and metrics
+
+Compare DT-GFN + EI with GP + EI and with tree-based BO alternatives, at
+matched evaluation budgets. Report the best objective so far, the simple
+regret when the optimum is known, the wall-clock cost and the predictive
+quality.
+
+Tree predictions are piecewise constant, which can create flat regions
+in the acquisition function. This motivates searching the acquisition
+over a set of candidates rather than with gradients.
+
+## Limitations
+
+Evaluate posterior fidelity, predictive calibration, acquisition
+decisions and downstream learning curves **separately**:
+
+- A biased posterior approximation may miss important modes, even with
+  many samples.
+- An exact posterior under a misspecified model does not guarantee
+  calibrated predictions.
+- Active-learning information gain need not reduce test error the
+  fastest.
+- Model information gain need not optimize an expensive objective
+  efficiently.

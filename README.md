@@ -1,2 +1,2 @@
-# dt-gflownet-tutorial
-Tutorials on Bayesian decision trees and GFlowNets
+# gflownet-research
+Tutorials on GFlowNets

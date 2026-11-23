@@ -134,6 +134,55 @@ color $\in\{\text{red},\text{green}\}$; the sequential GFlowNet samples it at
 spread over 4 two-split trees (22.5%, 22.5%, 16.6%, 16.6%), and its best tree
 has a lower log-posterior ($-112.70$ vs $-108.17$).
 
+### Real data: Play Tennis (depth $\le 3$)
+
+Quinlan's ID3 example: 14 samples, 4 categorical features (outlook: sunny,
+overcast, rain; temperature: hot, mild, cool; humidity: high, normal; wind:
+weak, strong), binary label, all samples used for training. Sequential
+subsets, seed 1, 10k steps.
+
+There are 8, 380, 194,018 and about $2.7\times10^9$ trees at depth 1, 2, 3
+and 4, so depth 3 is the deepest where the exact posterior can be enumerated.
+The enumeration is generated directly (same recursion as the tree count) and
+scored with the training proxy; at depth 2 it matches a depth-first search
+through the environment (380 trees).
+
+| | GFlowNet | Exact / best possible |
+|---|---|---|
+| Learned $\log Z$ | $-11.45$ | $-11.31$ |
+| TV, root split | **0.026** | 0.029 (noise floor) |
+| TV, whole trees | **0.316** | 0.326 (noise floor) |
+| Top tree, outlook $\in\{\text{sunny},\text{rain}\}$ | 15.2% | 15.0% |
+
+The "noise floor" is the mean TV of 1000 samples drawn from the exact
+posterior itself: with 1000 samples spread over 194k trees, even a perfect
+sampler has a TV of about 0.33 on whole trees. The GFlowNet is at that floor
+for both metrics.
+
+![Play Tennis: GFlowNet samples vs exact posterior, for the root split and the 10 most probable trees.](figures/play_tennis.png)
+
+**The textbook tree is not the most probable.** The top tree is the single
+split outlook $\in\{\text{sunny},\text{rain}\}$, which isolates overcast
+(always play). With 14 samples, each split costs about 2.8 nats of prior,
+which outweighs the better fit of deeper trees. Trees that predict exactly
+like the ID3 tree (outlook, then humidity under sunny and wind under rain)
+appear at ranks 5–9: the three-way outlook split can be written with binary
+splits in 5 ways, each at about 2.1%, about 10.6% together.
+
+**Accuracy is not informative on 14 samples.**
+
+| | Accuracy |
+|---|---|
+| Train, mean over the 1000 sampled trees | 80.9% |
+| Train, vote of the sampled trees (BMA) | 100% |
+| Leave-one-out, exact posterior BMA | 50.0% |
+| Leave-one-out, CART (depth $\le 3$) | 64.3% |
+| Leave-one-out, majority class | 64.3% |
+
+Leave-one-out is pathological here: the top tree's $\{\text{sunny},\text{rain}\}$
+leaf holds exactly 5 yes and 5 no, so removing any one of these samples flips
+the leaf's vote against it. Test accuracy needs a larger dataset.
+
 ### Takeaways
 
 - Categorical splits recover the exact posterior much better than numeric
@@ -142,11 +191,14 @@ has a lower log-posterior ($-112.70$ vs $-108.17$).
 - One-step and sequential subsets perform about the same at $k=4$. Sequential
   is kept because it scales to many categories ($k+1$ outputs instead of
   $2^k-1$).
+- On real data (Play Tennis, 194k trees at depth 3), the sequential GFlowNet
+  samples the exact posterior up to sampling noise.
 
 ## Limitations
 
-- Synthetic data only, one seed, small trees (depth $\le 2$), few categories
-  ($k\le 4$).
+- Synthetic data and one tiny real dataset, one seed, small trees
+  (depth $\le 3$), few categories ($k\le 4$).
+- No test-set accuracy yet: Play Tennis is too small for it.
 - The tree is either all-categorical or all-numeric: mixed datasets are not
   supported yet.
 - `Tree.readable2state` is not implemented in the library, so readable
@@ -156,7 +208,9 @@ has a lower log-posterior ($-112.70$ vs $-108.17$).
 
 | Task | Status |
 |---|---|
-| Real datasets with categorical features (e.g. Car, Tic-Tac-Toe) | Planned |
+| Play Tennis: exact posterior at depth 3 | Done |
+| Tic-Tac-Toe: test accuracy vs CART and numeric codes | Next |
+| Car Evaluation (ordered categories, control) | Planned |
 | Seeds 2–5 and test-set metrics | Planned |
 | Large-$k$ test of the sequential method | Planned |
 | Mixed numeric + categorical features | Planned |

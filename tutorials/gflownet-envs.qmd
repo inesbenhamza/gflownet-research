@@ -320,8 +320,12 @@ Running it again could give [0, 1, -1] (Choice then Grid), [1, 1, 1] (three Grid
 The order of the slots changes nothing about the object: {Grid, Choice} is the same set as {Choice, Grid}. The policy can build the slots in any order anyway, since the toggles pick by type.
 
 The set of sub-environments for a trajectory acts as a **condition**.
-It can be set with `set_subenvs()`, or sampled randomly with
-`do_random_subenvs=True`.
+It can be set with `subenvs=` at init or with `set_subenvs()`, or
+sampled randomly at each `reset()` with `do_random_subenvs=True`. A
+trajectory can use fewer than `max_elements` sub-environments, but it
+must finish **all** the ones it was given: the global EOS is only valid
+once every slot is done (unused slots count as done). The policy chooses
+the order, not how many elements to build.
 
 `make_set(is_flexible, ...)` in `gflownet/envs/composite/utils.py` is a
 factory that returns a `SetFlex` if `is_flexible=True` and a `SetFix`
@@ -338,7 +342,11 @@ from a set. It is a Set of `Choice` sub-environments:
   remove it from the remaining `Choice` sub-environments.
 - `can_select_fewer_than_max=True` would use a `SetFlex`, but it is
   **not implemented yet**. Currently `Choices` always returns a
-  `ChoicesSetFix`.
+  `ChoicesSetFix`, so every selection has exactly `max_selection`
+  options. Even a `SetFlex` would not let the policy decide how many
+  options to select: the number of sub-environments is fixed before the
+  trajectory starts, and all of them must be finished (see the
+  `SetFlex` section above).
 
 ```python
 from gflownet.envs.choices import Choices
