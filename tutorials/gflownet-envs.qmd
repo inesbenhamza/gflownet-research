@@ -176,6 +176,15 @@ writing each one from scratch, the library provides
 **meta-environments** (`gflownet/envs/composite/`) that combine existing
 **sub-environments**.
 
+
+A composite (Set, SetFix, SetFlex, and the Tree itself) is made of sub-envs. To do anything inside one, you have to:
+
+- activate that sub-env (a composite-level action);
+- take the sub-env's own actions;
+- finish it with its EOS;
+- deactivate it to go back to the composite level (another composite-level action
+
+
 They share a few conventions (`CompositeBase`):
 
 - **States are dictionaries.** Integer keys `0, 1, …` hold each
@@ -300,9 +309,15 @@ env.source
 #  '_envs_unique': [-1, -1, -1], '_keys': [0, 1, 2]}
 
 env.state  # after reset with random subenvs: one Grid and one Choice
-# {'_active': -1, '_toggle': 0, '_dones': [0, 0, 1],
-#  '_envs_unique': [1, 0, -1], '_keys': [0, 1, -1], 0: [0, 0], 1: [0]}
+# {'_active': -1, '_toggle': 0, '_dones': [0, 0, 1], # the unused slot already counts as done
+#  '_envs_unique': [1, 0, -1], '_keys': [0, 1, -1], 0: [0, 0], 1: [0]} # here in '_envs_unique': [1, 0, -1] there is 3 slots 1st one mean the that grid (type 1)
 ```
+
+That example uses do_random_subenvs=True. At each reset(), the SetFlex picks a number of elements (here 2), then draws each element's type from envs_unique at random, with replacement. In that run the first draw was a Grid (type 1) and the second a Choice (type 0), so you get [1, 0, -1].
+
+Running it again could give [0, 1, -1] (Choice then Grid), [1, 1, 1] (three Grids), [0, -1, -1] (one Choice), and so on.
+
+The order of the slots changes nothing about the object: {Grid, Choice} is the same set as {Choice, Grid}. The policy can build the slots in any order anyway, since the toggles pick by type.
 
 The set of sub-environments for a trajectory acts as a **condition**.
 It can be set with `set_subenvs()`, or sampled randomly with

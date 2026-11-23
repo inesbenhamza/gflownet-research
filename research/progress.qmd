@@ -9,7 +9,7 @@ This section documents ongoing DT-GFN research.
 
 | Topic | Status |
 |---|---|
-| Categorical splitting strategies | Exploring |
+| [Categorical splitting strategies](categorical-splits.qmd) | In progress |
 | Posterior accuracy | Planned |
 | Uncertainty quantification | Planned |
 | improved scalability | Planned |
@@ -19,3 +19,7 @@ This section documents ongoing DT-GFN research.
 
 Each experiment will document its research question,
 methodology, results, limitations, and next steps.
+
+| Experiment | Question |
+|---|---|
+| [Categorical splits](categorical-splits.qmd) | Can DT-GFN sample trees with categorical splits and recover the exact posterior? |

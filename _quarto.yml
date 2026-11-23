@@ -48,6 +48,8 @@ website:
             href: research/progress.qmd
           - text: "DT-GFN"
             href: research/DT_GFN.qmd
+          - text: "Categorical Splits"
+            href: research/categorical-splits.qmd
           - text: "Local Search for GFlowNets"
             href: research/local-search.qmd
 
