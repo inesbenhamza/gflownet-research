@@ -159,5 +159,5 @@ has a lower log-posterior ($-112.70$ vs $-108.17$).
 | Real datasets with categorical features (e.g. Car, Tic-Tac-Toe) | Planned |
 | Seeds 2–5 and test-set metrics | Planned |
 | Large-$k$ test of the sequential method | Planned |
-| Mixed numeric + categorical features | To discuss |
-| Autoregressive Bernoulli variant (fewer steps per split) | To discuss |
+| Mixed numeric + categorical features | Planned |
+
