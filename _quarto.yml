@@ -42,6 +42,10 @@ website:
             href: tutorials/gflownet-envs.qmd
           - text: "Your First Bayesian Tree"
             href: tutorials/first-tree.qmd
+          - text: "Git basics"
+            href: tutorials/git-basics.qmd
+          - text: "Git for the gflownet library"
+            href: tutorials/git.qmd
       - section: "Part III — Research"
         contents:
           - text: "Research Progress"

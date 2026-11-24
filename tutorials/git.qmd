@@ -1,0 +1,286 @@
+---
+title: "Git for working on the gflownet library"
+---
+
+A practical guide to the Git commands needed to work on the
+[`gflownet`](https://github.com/alexhernandezgarcia/gflownet) library:
+getting the code, moving between branches, checking out pull requests,
+keeping personal notes, and comparing branches.
+
+New to Git? Start with [Git basics](git-basics.qmd).
+
+## How Git stores your work
+
+A change goes through four places:
+
+| Place | What it is | Moved there with |
+|---|---|---|
+| **Working directory** | the files in your folder, as you edit them | (just edit) |
+| **Staging area** | the changes selected for the next commit | `git add` |
+| **Local repository** | the commit history, on your laptop only | `git commit` |
+| **Remote** (`origin`) | the repository on GitHub | `git push` |
+
+- **Staged** changes will go into the next commit. **Unstaged** changes
+  are edits that you haven't selected yet: they stay in your folder and
+  are not saved in the history.
+- A commit is saved on your laptop only. Nothing reaches GitHub until you
+  `git push`.
+- `git status` tells you, at any time, which files are modified, staged
+  or untracked.
+
+## Getting the code
+
+```bash
+# Clone with SSH (needs an SSH key set up on GitHub)
+git clone git@github.com:alexhernandezgarcia/gflownet.git
+cd gflownet
+
+# Or with HTTPS, choosing the folder name (the last argument)
+git clone https://github.com/alexhernandezgarcia/gflownet.git gflownet-lib
+cd gflownet-lib
+```
+
+`origin` is the name Git gives to the repository you cloned from.
+
+## Branches
+
+```bash
+# Download the latest information about the remote branches
+# (does not change your files)
+git fetch origin
+
+# Switch to an existing branch, e.g. ising
+git switch ising
+
+# Bring your local ising up to date with GitHub
+git pull origin ising
+
+# Create a NEW branch from where you are, and switch to it
+git switch -c ising-logz-unbiased
+
+# List local branches (the current one is marked with *)
+git branch
+
+# Same, with the last commit of each branch and the remote branch it
+# tracks, e.g. [origin/main: behind 3]
+git branch -vv
+
+# Go back to main
+git switch main
+```
+
+`git switch` swaps the contents of your folder to match another branch:
+Git rewrites the files so that they are exactly as they are on that
+branch. `-c` stands for **create**.
+
+::: {.callout-warning}
+Commit or stash your changes before switching. Git refuses to switch if
+uncommitted changes would be overwritten by the other branch.
+:::
+
+## Checking out a pull request
+
+A pull request (PR) can be fetched into a local branch by its number,
+even when it comes from someone else's fork:
+
+```bash
+# Fetch PR #446 into a new local branch called composite-tree
+git fetch origin pull/446/head:composite-tree
+
+git branch                 # check that the branch exists
+git switch composite-tree  # Switched to branch 'composite-tree'
+```
+
+To get later updates of the PR, fetch it again from `main` (you can't
+fetch into the branch you are on), then switch back:
+
+```bash
+git switch main
+git fetch origin pull/446/head:composite-tree
+git switch composite-tree
+```
+
+## Saving your work: add and commit
+
+```bash
+git status                  # what changed?
+git diff                    # unstaged changes, line by line
+git add gflownet/envs/scrabble.py   # stage one file
+git add .                   # or stage every change in this folder
+git diff --staged           # what will go into the commit
+git commit -m "Improve tree environment"   # -m = commit message
+```
+
+You don't have to commit all your changes: stage only the files you
+want. `git add -p` goes further and lets you pick individual parts of a
+file.
+
+## Keeping personal notes on a branch
+
+To annotate the library code (comments, study notes) without touching
+the real branches, put the notes on a branch of their own:
+
+```bash
+git switch -c my-notes
+# ... add comments to gflownet/envs/scrabble.py ...
+git add gflownet/envs/scrabble.py
+git commit -m "My study notes on the scrabble env"
+git switch main
+```
+
+Now you can go back and forth:
+
+```bash
+git switch my-notes   # scrabble.py WITH your comments
+git switch main       # scrabble.py WITHOUT them (the upstream version)
+```
+
+## Putting changes aside: stash
+
+`git stash` saves your uncommitted changes and cleans the folder, so you
+can switch branches without committing half-finished work.
+
+```bash
+git stash           # put the changes aside
+git switch other-branch
+# ... look at something ...
+git switch -        # go back to the previous branch
+git stash pop       # bring the changes back
+git stash list      # see what is stashed
+```
+
+## Staying up to date: rebase
+
+When your branch (for example `my-notes`) is behind `main` on GitHub,
+`git branch -vv` shows something like `[origin/main: behind 3]`. To put
+your commits on top of the latest `main`:
+
+```bash
+git fetch origin
+git switch my-notes
+git rebase origin/main
+```
+
+Rebase replays your commits, one by one, on top of `origin/main`, so
+your branch now contains everything new in `main` plus your notes.
+
+- If a commit conflicts, Git stops. Fix the files, then
+  `git add <file>` and `git rebase --continue`.
+  `git rebase --abort` cancels and puts everything back as it was.
+- Rebase rewrites your commits. That is fine for a local branch like
+  `my-notes`, but don't rebase a branch that others have already pulled.
+  `git merge origin/main` is the alternative that doesn't rewrite
+  anything.
+
+## Looking at other branches without switching
+
+```bash
+# Print a file as it is on another branch (your folder is not touched)
+git show my-notes-tree:gflownet/envs/tree/tree.py | head -60
+
+# Save that version to a file, e.g. to open it in VS Code
+git show my-notes-tree:gflownet/envs/tree/tree.py > ~/Desktop/tree_notes.py
+
+# Differences in one file between two branches (e.g. only your notes)
+git diff ines/tree-categorical my-notes-tree -- gflownet/envs/tree/tree.py
+
+# Copy a file from another branch INTO the current branch
+# (careful: overwrites your version of that file)
+git checkout my-notes-tree -- gflownet/envs/tree/tree.py
+```
+
+In `git show <branch>:<path>`, `<branch>` can be any branch or commit,
+and `<path>` is relative to the root of the repository. `| head -60`
+only keeps the first 60 lines.
+
+## Comparing branches
+
+`A..B` (two dots) means "the commits in `B` that are not in `A`":
+
+```bash
+# Commits of #459's branch that are not in #446's branch
+git log --oneline origin/complete_envs_tree_node..origin/composite_tree_envs_add_regression
+
+# Only the merge commits
+git log --oneline --merges origin/complete_envs_tree_node..origin/composite_tree_envs_add_regression
+
+# Files that differ between two branches
+git diff --stat origin/main origin/composite_tree_envs_add_regression
+```
+
+This is how to check which commits a PR adds on top of the PR it is
+built on.
+
+## Safety: never push to the shared repository by accident
+
+You can disable pushing to `origin` while keeping `fetch` and `pull`:
+
+```bash
+git remote set-url --push origin DISABLED
+git remote -v      # fetch: the real URL, push: DISABLED
+```
+
+Any `git push` now fails. To undo it:
+
+```bash
+git remote set-url --push origin https://github.com/alexhernandezgarcia/gflownet.git
+```
+
+## Ignoring files only on your laptop
+
+`.git/info/exclude` works like `.gitignore`, but it is local: it isn't
+committed, so nobody else sees it. Use it for personal files (scratch
+scripts, notes) that you don't want Git to show or add.
+
+```bash
+echo "path/to/myfile.py" >> .git/info/exclude
+```
+
+It only affects **untracked** files. A file that is already committed
+stays tracked. To stop tracking it while keeping it on disk:
+`git rm --cached path/to/myfile.py`.
+
+## VS Code indicators
+
+In the status bar at the bottom left, next to the branch name:
+
+- **Cloud with an arrow ↑**: the branch is not published to GitHub, it
+  exists only on your laptop. Clicking it publishes it, so only do that
+  if you want it online (and choose a private repository).
+- **`*` after the branch name** (e.g. `main*`): there are uncommitted
+  changes.
+
+## Deleting a cloned repository
+
+A clone is just a folder: its whole history is in the hidden `.git`
+folder inside. Deleting the folder deletes the local repository (not the
+one on GitHub). This is a shell command, not a Git one:
+
+```bash
+rm -rf path/to/repo
+```
+
+::: {.callout-warning}
+`rm -rf` deletes permanently, without a trash bin, including commits
+that were never pushed. Check the path first.
+:::
+
+## Cheat sheet
+
+| Task | Command |
+|---|---|
+| clone into a named folder | `git clone <url> <folder>` |
+| what changed? | `git status`, `git diff` |
+| download remote updates | `git fetch origin` |
+| switch branch | `git switch <branch>` |
+| create and switch | `git switch -c <new-branch>` |
+| list branches with tracking info | `git branch -vv` |
+| update the current branch | `git pull origin <branch>` |
+| check out PR #N | `git fetch origin pull/N/head:<name>` |
+| stage / commit | `git add <file>`, `git commit -m "..."` |
+| put changes aside | `git stash`, `git stash pop` |
+| move your commits onto the latest main | `git rebase origin/main` |
+| read a file on another branch | `git show <branch>:<path>` |
+| commits in B but not in A | `git log --oneline A..B` |
+| disable pushing | `git remote set-url --push origin DISABLED` |
+| ignore a file locally | `echo "<path>" >> .git/info/exclude` |

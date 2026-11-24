@@ -1,0 +1,301 @@
+---
+title: "Git basics"
+---
+
+A general introduction to Git: what it does, the everyday commands, and
+how to work with GitHub. For the commands specific to the `gflownet`
+library (checking out PRs, notes branches, comparing PR branches), see
+[Git for the gflownet library](git.qmd).
+
+## What Git is
+
+Git is a **version control system**: it records snapshots of a project
+over time, so you can see what changed, go back to an earlier version,
+and work on several versions in parallel.
+
+- A **repository** (repo) is a project tracked by Git. Its whole history
+  lives in a hidden `.git` folder at the root of the project.
+- A **commit** is a snapshot of the project, with a message, an author,
+  a date and a unique id (a hash such as `3e8e13c`).
+- A **branch** is a movable name pointing to a commit. Each new commit on
+  the branch moves it forward.
+- **Git** runs on your computer. **GitHub** is a website that hosts
+  repositories, so that you can back them up and share them.
+
+## The three areas
+
+| Area | What it is | Moved there with |
+|---|---|---|
+| **Working directory** | your files, as you edit them | (just edit) |
+| **Staging area** | the changes selected for the next commit | `git add` |
+| **Repository** | the saved history of commits | `git commit` |
+
+Working with a remote (GitHub) adds a fourth place, reached with
+`git push` (see [Remotes](#remotes-working-with-github)).
+
+You choose what goes into each commit: editing three files and staging
+only two gives a commit with those two files, and the third stays as an
+unstaged change.
+
+## Setting up Git
+
+Once per computer:
+
+```bash
+git --version                                # check that Git is installed
+git config --global user.name "Your Name"
+git config --global user.email "you@example.com"
+git config --global init.defaultBranch main  # name new repos' first branch main
+git config --list                            # see your settings
+```
+
+The name and email are written into every commit you make. To keep your
+real email private on GitHub, use the `@users.noreply.github.com`
+address from your GitHub email settings.
+
+## Starting a repository
+
+```bash
+# Turn an existing folder into a repository
+cd my-project
+git init
+
+# Or copy an existing repository (with its whole history)
+git clone https://github.com/user/repo.git
+git clone https://github.com/user/repo.git my-folder   # choose the folder name
+```
+
+## The everyday cycle
+
+```bash
+git status                 # what changed? what is staged?
+git diff                   # unstaged changes, line by line
+git add file.py            # stage one file
+git add .                  # stage everything in the current folder
+git diff --staged          # what will go into the commit
+git commit -m "Add data loader"
+git log --oneline          # the history, one line per commit
+```
+
+Good commit messages say **what** the commit does, in the imperative:
+"Fix off-by-one in mask", not "fixed stuff". Small commits that each do
+one thing are easier to understand and to undo.
+
+### `.gitignore`
+
+A `.gitignore` file at the root lists files that Git should never track:
+data, outputs, secrets, environment folders.
+
+```text
+# .gitignore
+__pycache__/
+*.pyc
+.venv/
+data/
+logs/
+.env
+```
+
+It only affects untracked files. To stop tracking a file that is already
+committed, while keeping it on disk: `git rm --cached file`.
+
+::: {.callout-warning}
+Never commit passwords, API keys or tokens. Deleting them in a later
+commit is not enough: they stay in the history. If it happens, revoke
+the key.
+:::
+
+## Looking at the history
+
+```bash
+git log                        # full history
+git log --oneline --graph --all   # compact, with branches drawn
+git log -- path/to/file.py     # commits that touched a file
+git show 3e8e13c               # what a commit changed
+git diff main feature          # differences between two branches
+git blame file.py              # who last changed each line, and when
+```
+
+## Undoing things
+
+| Situation | Command |
+|---|---|
+| discard your edits to a file (not staged) | `git restore file.py` |
+| unstage a file (keep the edits) | `git restore --staged file.py` |
+| fix the message or content of the **last** commit (not pushed yet) | `git commit --amend` |
+| undo the last commit, keep its changes | `git reset --soft HEAD~1` |
+| create a new commit that reverses an old one | `git revert <hash>` |
+| delete untracked files | `git clean -n` (preview), then `git clean -f` |
+
+`HEAD` means "the commit you are on", and `HEAD~1` is the one before.
+
+::: {.callout-warning}
+`git restore`, `git reset --hard` and `git clean -f` delete uncommitted
+work for good. On commits that are already pushed, prefer `git revert`,
+which adds a new commit instead of rewriting the history others have.
+:::
+
+If you lose a commit (after a bad reset or rebase), `git reflog` lists
+every position `HEAD` has been at, and you can get back with
+`git switch -c rescue <hash>`.
+
+## Branches
+
+Branches let you work on something without touching `main`: a feature,
+an experiment, a fix.
+
+```bash
+git branch                  # list branches (* = current)
+git switch -c new-feature   # create a branch and switch to it
+git switch main             # switch to an existing branch
+git switch -                # go back to the previous branch
+git branch -d new-feature   # delete a merged branch
+git branch -D new-feature   # delete it even if not merged
+```
+
+`git switch` changes the files in your folder to match the branch. Commit
+or stash your changes first (see [Stash](#stash-putting-changes-aside)).
+Older tutorials use `git checkout` for the same thing.
+
+### Merging
+
+To bring the commits of `new-feature` into `main`:
+
+```bash
+git switch main
+git merge new-feature
+```
+
+If both branches changed the same lines, Git stops with a **conflict**
+and marks the file:
+
+```text
+<<<<<<< HEAD
+threshold = 0.5
+=======
+threshold = 0.7
+>>>>>>> new-feature
+```
+
+Edit the file to keep the right version, delete the markers, then:
+
+```bash
+git add file.py
+git commit                 # completes the merge
+# or give up and go back to before the merge:
+git merge --abort
+```
+
+### Rebasing
+
+`git rebase main` (run on `new-feature`) replays the commits of
+`new-feature` on top of the latest `main`. The result has the same
+content as a merge, but a straight history without a merge commit.
+
+- Conflicts are resolved the same way, then `git rebase --continue`
+  (or `git rebase --abort`).
+- Rebase rewrites commits. Only rebase branches that nobody else has
+  pulled.
+
+## Stash: putting changes aside
+
+```bash
+git stash          # save uncommitted changes and clean the folder
+git stash list     # see the stashes
+git stash pop      # bring the last stash back
+git stash drop     # delete the last stash
+```
+
+Useful when you need to switch branches but aren't ready to commit.
+
+## Remotes: working with GitHub
+
+A **remote** is a copy of the repository somewhere else. The one you
+cloned from is called `origin`.
+
+```bash
+git remote -v                         # list remotes
+git remote add origin git@github.com:user/repo.git   # connect a local repo
+
+git fetch origin                      # download new commits, change nothing
+git pull                              # fetch + merge into the current branch
+git push                              # upload your commits
+git push -u origin new-feature        # first push of a new branch
+                                      # (-u remembers where to push next time)
+git branch -vv                        # local branches and how far
+                                      # ahead/behind their remote they are
+```
+
+- `fetch` is always safe: it only downloads. `pull` also changes your
+  current branch.
+- `push` is refused if the remote has commits you don't have. Pull
+  first, fix any conflicts, then push again.
+- **SSH vs HTTPS URLs.** `git@github.com:...` uses an SSH key, and
+  `https://github.com/...` uses a token. Pick one and set it up once in
+  your GitHub settings.
+
+### Pull requests and forks
+
+A **pull request** (PR) is a GitHub feature, not a Git one: it asks for
+a branch to be merged into another, with a review.
+
+1. Create a branch, commit, and `git push -u origin my-branch`.
+2. On GitHub, open a PR from `my-branch` into `main`.
+3. Push more commits to the same branch to update the PR.
+4. Once it is merged, update your `main` with `git switch main` and
+   `git pull`, then delete the branch.
+
+If you can't push to a repository, **fork** it on GitHub (your own copy),
+clone your fork, push to it, and open the PR from the fork.
+
+## Tags
+
+A tag is a fixed name for a commit, typically a release or the code
+behind a paper's results:
+
+```bash
+git tag v1.0
+git tag -a paper-v1 -m "Code for the submission"
+git push origin --tags
+```
+
+## Typical workflow
+
+```bash
+git switch main
+git pull                         # start from the latest main
+git switch -c fix-mask           # one branch per task
+# ... edit ...
+git status
+git add gflownet/envs/tree/tree.py
+git commit -m "Fix backward mask of the tree env"
+git push -u origin fix-mask      # then open a PR on GitHub
+```
+
+## Cheat sheet
+
+| Task | Command |
+|---|---|
+| set your identity | `git config --global user.name / user.email` |
+| new repo / copy a repo | `git init` / `git clone <url>` |
+| what changed? | `git status`, `git diff`, `git diff --staged` |
+| stage / commit | `git add <file>`, `git commit -m "..."` |
+| history | `git log --oneline --graph --all` |
+| discard edits / unstage | `git restore <file>`, `git restore --staged <file>` |
+| fix the last commit | `git commit --amend` |
+| reverse a pushed commit | `git revert <hash>` |
+| find a lost commit | `git reflog` |
+| new branch / switch | `git switch -c <name>` / `git switch <name>` |
+| merge a branch into the current one | `git merge <branch>` |
+| replay commits onto main | `git rebase main` |
+| put changes aside | `git stash`, `git stash pop` |
+| download / update / upload | `git fetch`, `git pull`, `git push` |
+| first push of a branch | `git push -u origin <branch>` |
+| ignore files | `.gitignore` |
+
+## Going further
+
+- [Pro Git](https://git-scm.com/book/en/v2), the free official book.
+- `git help <command>` opens the manual of any command.
+- [Learn Git Branching](https://learngitbranching.js.org/), an
+  interactive visual tutorial on branches, merge and rebase.
