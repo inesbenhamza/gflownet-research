@@ -1,10 +1,10 @@
 
 ---
-title: "Your First Bayesian Tree"
+title: "Bayesian decision Tree experiment"
 ---
 
 In this tutorial, we'll construct a small decision
-tree and compute its Bayesian score.
+tree (features are categorical and mixed) and compute its Bayesian score.
 
 ## Learning objectives
 

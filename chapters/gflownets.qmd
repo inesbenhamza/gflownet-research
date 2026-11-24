@@ -121,6 +121,16 @@ support can be used to train, including replayed or locally
 refined samples. This is what makes local search
 (Part III) a natural add-on.
 
+
+## Evaluating a GFlowNet
+
+### 1st : how well the method matches the target distribution
+- Shen et al. (2023). [Towards Understanding and Improving GFlowNet Training](https://proceedings.mlr.press/v202/shen23a/shen23a.pdf).
+
+the idea is to measure the accuracy of training GFlowNet p(x/param)
+
+###2nd : can also be interested in evaluating the number of mode discovered 
+
 ## Connection to Bayesian decision trees
 
 To sample decision trees from the posterior:
@@ -141,3 +151,4 @@ running MCMC. See [Bayesian Decision Trees](bayesian-trees.qmd).
 - Bengio et al. (2021). [Flow Network based Generative Models for Non-Iterative Diverse Candidate Generation](https://arxiv.org/abs/2106.04399).
 - Bengio et al. (2023). [GFlowNet Foundations](https://arxiv.org/abs/2111.09266).
 - Malkin et al. (2022). [Trajectory Balance: Improved Credit Assignment in GFlowNets](https://arxiv.org/abs/2201.13259).
+- Shen et al. (2023). [Towards Understanding and Improving GFlowNet Training](https://proceedings.mlr.press/v202/shen23a/shen23a.pdf).

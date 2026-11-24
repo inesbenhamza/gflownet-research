@@ -177,12 +177,17 @@ writing each one from scratch, the library provides
 **sub-environments**.
 
 
-A composite (Set, SetFix, SetFlex, and the Tree itself) is made of sub-envs. To do anything inside one, you have to:
+A composite (SetFix, SetFlex, or the Tree, whose internal nodes are each
+a `DecisionTreeNode` sub-env) is made of sub-envs. To do anything inside
+one, you have to:
 
 - activate that sub-env (a composite-level action);
 - take the sub-env's own actions;
 - finish it with its EOS;
-- deactivate it to go back to the composite level (another composite-level action
+- deactivate it to go back to the composite level (another composite-level action).
+
+A Stack is simpler: there is no activate/deactivate action. Each
+sub-env's EOS automatically makes the next one active.
 
 
 They share a few conventions (`CompositeBase`):
@@ -211,7 +216,7 @@ from gflownet.envs.composite.stack import Stack
 
 env = Stack(subenvs=[Choice(options=["a", "b"]), Grid(n_dim=2, length=3)])
 env.source  # {'_active': 0, 0: [0], 1: [0, 0]}
-env.eos     # (1, 0, 0)  -> the Grid's EOS, prefixed with unique index 1
+env.eos     # (1, 0, 0)  -> global EOS = EOS of the last sub-env (the Grid), prefixed with its unique index 1
 env.action_space
 # [(0, 1, 0), (0, 2, 0), (0, -1, 0),   <- Choice actions (prefix 0)
 #  (1, 0, 1), (1, 1, 0), (1, 0, 0)]    <- Grid actions   (prefix 1)
@@ -226,8 +231,42 @@ env.state2readable()     # 'Active: 1; a; [1 0]'
 ```
 
 **When to use it:** the object has distinct parts that make sense to
-build in a fixed order. Constraints let a later part depend on an
+[build in a fixed order]{style="color: blue; font-weight: bold;"}. Constraints let a later part depend on an
 earlier one, for example a lattice that depends on the chosen symmetry.
+
+**[Example]{style="color: green; font-weight: bold;"}: a node of the Tree environment.** Each internal node of a
+decision tree is itself a Stack. The `Tree` itself is **not** a Stack:
+it is a `CompositeBase` that holds many node sub-envs and lets the policy
+choose which leaf to expand next, with toggle actions to activate and
+deactivate a node (see [the Tree section](#tree-growing-the-tree-one-node-at-a-time)).
+A Stack is only used *inside* each node. For a categorical split, the node first
+picks a feature, then builds the set `L` of categories that go to the
+left child (the split is `x[feature] in L`):
+
+```python
+from gflownet.envs.choice import Choice
+from gflownet.envs.tree.subset_sequential import SubsetSequential
+
+# Conceptually, a categorical node is:
+node = Stack(subenvs=[
+    Choice(options=["feature 1", "feature 2"]),  # stage 0: pick the feature
+    SubsetSequential(n_options=max_categories),  # stage 1: add categories to L, then STOP
+])
+```
+
+In the library this is `DecisionTreeNodeCategoricalSequential`
+(`gflownet/envs/tree/categorical_node.py`), which builds exactly this
+Stack and adds the tree-specific masks:
+
+```python
+from gflownet.envs.tree.categorical_node import DecisionTreeNodeCategoricalSequential
+
+# "feature 1" has 3 categories, "feature 2" has 5 -> max_categories = 5
+node = DecisionTreeNodeCategoricalSequential(
+    features=["feature 1", "feature 2"],
+    n_categories=[3, 5],
+)
+```
 
 ### `SetFix` and `SetFlex`: sets without order
 
@@ -364,10 +403,16 @@ env.get_options()    # (3, 2)  -> 'z' and 'y', never the same option twice
 ## The decision tree environment
 
 The tree environments (`gflownet/envs/tree/`) put all of the above
-together. A `Tree` is a composite environment whose sub-environments
+together and build a binary decision tree. A `Tree` is a composite environment whose sub-environments
 are **nodes**, and each node is a `Stack` of a feature `Choice` and a
 split stage. See [Bayesian Decision Trees](../chapters/bayesian-trees.qmd)
 for the model and the reward.
+
+The Tree class can be used with different node sub-environment classes.
+Currently, it expects all nodes in a given tree to be of the same sub-environment type. [(THIS NEEDS TO BE HANDLED)]{style="color: red; font-weight: bold;"}
+Sub-environment classes that can be used with the Tree class must be registered in the _NODE_CLASSES global variable.
+
+
 
 | File | Contents |
 |---|---|
@@ -376,6 +421,7 @@ for the model and the reward.
 | `discrete_node.py` | `DecisionTreeNodeDiscrete`: feature + threshold on a 1D `Grid` |
 | `discrete_choice_node.py` | `DecisionTreeNodeDiscreteChoice`: feature + threshold picked by a `Choice` |
 | `categorical_node.py` | `DecisionTreeNodeCategoricalSequential`: feature + subset of categories |
+| `mixed_node.py` | `DecisionTreeNodeMixed`, the sub-environment that builds that subset |
 | `subset_sequential.py` | `SubsetSequential`, the sub-environment that builds that subset |
 
 ### `Tree`: growing the tree one node at a time
@@ -458,6 +504,108 @@ The increasing-order rule is what matters: each subset is reached by
 (remove its largest element). The DAG is a tree, so the backward policy
 is trivial. Building a set in free order would instead give $|L|!$
 trajectories per subset.
+
+::: {.callout-note}
+**Action vs element numbering.** Actions are 1-based and elements are
+0-based: action `(2,)` adds element 1. Position $i$ of the mask is the
+action at position $i$ of `action_space`, so after `step((2,))` the mask
+`[True, True, False, False, False]` blocks actions `(1,)` and `(2,)`
+(elements 0 and 1). Actions `(3,)`, `(4,)` and STOP are allowed.
+:::
+
+#### Why one trajectory per subset?
+
+Several paths to the same object are allowed in general. GFlowNets were
+designed for DAGs, for example the hypergrid, where many paths lead to
+the same cell. With several paths, the flow into $x$ is split across its
+trajectories and you need a backward policy $P_B$, either fixed (often
+uniform) or learned. One path per subset is a **design choice** here.
+A set has no order, so the extra paths would all describe the same
+object.
+
+Take two elements $\{0, 1\}$:
+
+```
+  any order allowed                increasing order (SubsetSequential)
+
+        {}                                 {}
+       /  \                               /  \
+    {0}    {1}                          {0}    {1}
+       \  /                              |
+      {0,1}                            {0,1}
+```
+
+- **Any order:** $\{0,1\}$ has two parents, so the flow $R(\{0,1\})$ is
+  shared between the two paths (5 + 5, 9 + 1, ...), $P_B$ decides the
+  split, and $P(\{0,1\}) = P(\tau_1) + P(\tau_2)$.
+- **Increasing order:** from $\{1\}$, adding 0 is masked. $\{0,1\}$ has
+  one parent, all the flow goes through one path, $P_B = 1$, and
+  $P(\{0,1\}) = P_F(\tau)$ exactly.
+
+What this gives you:
+
+- a trivial backward policy (nothing to learn, simpler losses);
+- a smaller trajectory space: 1 path per subset instead of $k!$
+  ($10! \approx 3.6$ million for 10 elements);
+- exact likelihoods with no sum over trajectories, useful for evaluation;
+- a simpler `Tree`, since every split decision would otherwise multiply
+  the number of paths to each tree.
+
+#### Skipping an element means "out"
+
+The policy can't add 0 after 1, or 1 after 2, and it doesn't need to.
+Each element gets exactly one chance, when its turn comes, like filling
+a checklist from top to bottom:
+
+```
+{}    → add 1 → {1}      skipped 0: "0 is out"
+{1}   → add 3 → {1,3}    skipped 2: "2 is out"
+{1,3} → STOP             "nothing else is in"
+```
+
+So the state $\{1\}$ really means "contains 1, does not contain 0".
+To get $\{0,1,2\}$, the only path is
+$\{\} \to \{0\} \to \{0,1\} \to \{0,1,2\} \to$ STOP. Every subset is
+still reachable, in exactly one order. At $\{0\}$ the options are:
+
+| action | leads to | meaning |
+|---|---|---|
+| add 1 | $\{0,1\}$ | 1 is in |
+| add 2 | $\{0,2\}$ | 1 is out, 2 is in |
+| add 3 | $\{0,3\}$ | 1 and 2 are out, 3 is in |
+| STOP  | $\{0\}$   | nothing else is in |
+
+#### How does the policy know what to pick early on?
+
+It doesn't see all states and rewards. It learns from **sampled
+trajectories**:
+
+1. **At the start the policy is roughly uniform**, so during training it
+   tries every path, including $\{0\} \to \{0,1\} \to \{0,1,2\}$.
+2. **It only sees the reward of the final object**, at the end of each
+   trajectory.
+3. **The loss updates every action on the trajectory.** With Trajectory
+   Balance (here $\sum \log P_B = 0$):
+   $$
+   \mathcal{L}(\tau) = \Big(\log Z + \sum_{t} \log P_F(s_{t+1} \mid s_t) - \log R(x)\Big)^2
+   $$
+   A high-reward trajectory raises the probability of each of its
+   actions, including "add 1" at $\{0\}$, even though the reward came
+   three steps later.
+4. **Over many trajectories**, the probability of an action becomes
+   proportional to the total reward reachable through it:
+   $$
+   P(\text{add 1} \mid \{0\}) \propto R(\{0,1\}) + R(\{0,1,2\}) + R(\{0,1,3\}) + R(\{0,1,2,3\})
+   $$
+   This is what training converges to.
+5. **The network generalizes.** It takes `state2policy(state)` as input,
+   so it can make sensible choices in states it has rarely visited.
+
+For example, with $R(\{0\}) = 1$, $R(\{1\}) = 1$ and $R(\{0,1\}) = 10$,
+a trained policy at $\{\}$ picks "add 0" with probability $11/12$:
+everything reachable through it ($\{0\}$ and $\{0,1\}$) totals 11. If it
+picks "add 1" by mistake, that trajectory can't be fixed by
+backtracking. Training lowers that probability next time instead.
 
 `SubsetSequential` only enforces this structural rule. Rules that
 depend on context (which categories reach a node, which subsets are
