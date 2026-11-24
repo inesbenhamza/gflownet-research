@@ -4,5 +4,3 @@ title: "Local Search GFlowNets"
 
 # Introduction
 
-A Bayesian decision tree defines a posterior
-distribution over possible decision-tree structures.
