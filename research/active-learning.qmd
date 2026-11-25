@@ -3,8 +3,7 @@ title: "Active Learning and Bayesian Optimization with DT-GFN"
 ---
 
 Two extensions of DT-GFN to sequential experimental design: **pool-based
-active learning** (Idea 1) and **Bayesian optimization** (Idea 2). Both
-use the posterior tree samples that DT-GFN already produces.
+active learning** using the posterior tree samples that DT-GFN already produces.
 
 ## Research question
 
