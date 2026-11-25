@@ -10,15 +10,17 @@ splits on numeric features, with rules $x_f \le \tau$ on min-max scaled data.
 A categorical feature (e.g. a color) has to be encoded as numbers first, which
 imposes an order that doesn't exist.
 
-**Can the GFlowNet sample trees with categorical splits, and does it recover
-the exact posterior over trees better than with numeric codes?**
+**Can the GFlowNet sample trees with categorical splits and recover the exact
+posterior over trees?**
 
-## Methods compared
+## Method: sequential subset splits
 
-All methods share the same node structure, a `Stack` of two stages:
+A split sends the samples with $x_f \in L$ to the left child, where $L$ is a
+subset of the categories of feature $f$. Each node is a `Stack` of two stages:
 
 1. **Stage 0:** a `Choice` over features.
-2. **Stage 1:** choose which categories go to the **left** child.
+2. **Stage 1:** `SubsetSequential` builds $L$, the categories that go to the
+   **left** child: it adds categories in increasing order, then STOP.
 
 Every node keeps, for each feature, the set $A$ of categories that can still
 reach it (computed from its ancestors: left child $A\cap L$, right child
@@ -26,62 +28,92 @@ $A\setminus L$). Features with $|A|<2$ are masked. To count each split once,
 the first available category $\min(A)$ always goes left (mirror rule), and
 $L \neq A$ so the right child is never empty.
 
-| Method | Split | Stage 1 | Steps per split | Policy outputs |
-|---|---|---|---|---|
-| One-vs-rest | $x_f = c$ | `Choice` over categories | 1 | $k$ |
-| One-step subsets | $x_f \in L$ | `Choice` over all subsets (bitmasks) | 1 | $2^k-1$ |
-| **Sequential subsets** | $x_f \in L$ | `SubsetSequential`: add categories in increasing order, then STOP | $\lvert L\rvert+1$ | $k+1$ |
-
-Both subset methods reach the same $2^{|A|-1}-1$ splits per feature, each
-through exactly one trajectory. The sequential method scales to many
-categories; one-step is capped at $k\le 10$ (1023 options).
+This reaches all $2^{|A|-1}-1$ splits per feature, each through exactly one
+trajectory. Building $L$ takes $\lvert L\rvert+1$ steps and the policy has
+only $k+1$ outputs for $k$ categories (instead of $2^k-1$ if every subset were
+a single action), so it scales to many categories.
 
 ::: {.callout-note}
-The three methods were implemented and compared. The code kept going forward
-(`node_type="categorical_sequential"`, in `categorical_node.py` and
-`subset_sequential.py`) contains **only the sequential method**.
+The method is implemented as `node_type="categorical_sequential"`, in
+`categorical_node.py` and `subset_sequential.py`. For worked examples, see
+[`SubsetSequential`](../tutorials/gflownet-envs.qmd#subsetsequential-building-a-subset-in-canonical-order)
+(building the subset) and
+[`DecisionTreeNodeCategoricalSequential`](../tutorials/gflownet-envs.qmd#decisiontreenodecategoricalsequential-subset-splits)
+(the node that uses it for a split) in the *Environments in the gflownet
+library* tutorial, under "The decision tree environment".
 :::
 
-### Why a new environment instead of `Choices`?
-
-A split needs the **policy** to decide how many categories go left.
-`Choices` always selects exactly `max_selection` options (selecting fewer is
-not implemented), and even `SetFlex` takes the number of elements from
-outside, per trajectory, with the global EOS valid only once every element is
-done. `SubsetSequential` makes STOP a policy action, valid as soon as $L$ is
-non-empty, and its increasing order gives one trajectory per subset (trivial
-backward policy).
 
 ## Methodology
 
-### Synthetic data with a planted rule
+### Synthetic data with a known rule
 
 500 samples with features color (4 categories: red, blue, green, yellow),
 size and shape, 5% label noise, 5 seeds, 80/20 stratified train/test split.
 
 | Dataset | Rule |
 |---|---|
-| `cat_onevsrest` | $y=1$ iff color $=$ blue |
 | `cat_subset` | $y=1$ iff color $\in\{\text{red},\text{green}\}$ |
-| `cat_depth2` | $y=1$ iff color $=$ blue and size $=0$ |
 
 Because we choose the rule, we know which tree should be the most probable.
+
+**Label noise.** After applying the rule, each label is flipped with
+probability 5%, at random (`prepare_synthetic_cat.py`). Without noise the
+correct tree would fit perfectly and the task would be trivial. With noise,
+no tree fits perfectly, and the model must prefer the simple correct tree over
+bigger trees that add splits to explain the flipped labels. Training data of
+`cat_subset`, seed 1 (400 samples):
+
+| Color | Samples | $y=1$ | Rule says |
+|---|---|---|---|
+| red | 89 | 82 | 1 |
+| green | 105 | 101 | 1 |
+| blue | 90 | 5 | 0 |
+| yellow | 116 | 11 | 0 |
+
+The 11 red/green samples with $y=0$ and the 16 blue/yellow samples with
+$y=1$ are flipped labels: 27 of 400 (6.75%, close to 5% since each flip is
+random).
 
 ### Exact posterior
 
 Each tree has reward $R(T)=\text{prior}(T)\times p(\text{data}\mid T)$ and
 the GFlowNet is trained to sample
-$P(T\mid\text{data}) = R(T)/\sum_{T'}R(T')$. With 3 features and depth
-$\le 2$ there are only a few hundred trees, so we **enumerate all of them**
-and compute this posterior (and the true $\log Z$) exactly. We compare it with
-the frequencies of $N$ GFlowNet samples using the total variation distance
+$P(T\mid\text{data}) = R(T)/\sum_{T'}R(T')$. The reward is computed by the
+`TreeProxy` (`gflownet/proxy/tree.py`):
+
+- **Likelihood $p(\text{data}\mid T)$: how well the tree explains the
+  labels.** Each leaf has an unknown probability of each class. A Dirichlet
+  prior is put on it (a Beta prior for 2 classes) and integrated out, which
+  gives a closed formula that depends only on the class counts in the leaf:
+  $$\log p(y_{\text{leaf}}) = \log B(\alpha + \text{counts}) - \log B(\alpha),$$
+  with $B$ the multivariate Beta function and $\alpha = 0.1$. The log-likelihood
+  of the tree is the sum over its leaves. Pure leaves (almost all samples of one
+  class) score high, mixed leaves score low.
+- **Prior: a penalty for each split** (`prior_type: node_count`). Each split
+  costs $\log 4 + \log(\text{n\_features})$, i.e. $\log 12 \approx 2.5$ nats
+  with 3 features. It favors small trees.
+
+So $\log R(T) = \log\text{prior}(T) + \sum_{\text{leaves}}\log p(y_{\text{leaf}})$.
+
+**Exact side.** With 3 features and depth $\le 2$ there are only a few
+hundred trees, so we **enumerate all of them**, compute $R(T)$ for each,
+sum them to get $Z$ (the true $\log Z$), and divide: $P(T\mid\text{data}) =
+R(T)/Z$.
+
+**GFlowNet side.** We sample $N$ trees
+from the trained GFlowNet and **count how often each tree appears**
+($\hat P_{\text{GFN}}(T)$ = number of times $T$ is sampled $/\,N$).
+
+**Comparison.** The total variation distance between the two distributions,
+over all trees:
 $\mathrm{TV} = \tfrac12\sum_T|\hat P_{\text{GFN}}(T)-P(T\mid\text{data})|$.
+0 means identical, 1 means completely different.
 
 ### Uniform-reward test
 
 With $R(T)=1$ for every tree, trajectory balance gives $Z=$ number of trees,
-so the learned $\log Z$ must converge to $\log(\#\text{trees})$. Any other
-value means some trees are unreachable or reachable by several trajectories.
+so the learned $\log Z$ must converge to $\log(\#\text{trees})$.
 
 ## Results
 
@@ -89,63 +121,96 @@ All runs: depth $\le 2$, seed 1.
 
 ### Uniform reward
 
-| Method | Depth | Trees | Target $\log Z$ | Learned $\log Z$ |
-|---|---|---|---|---|
-| One-vs-rest | 1 | 8 | 2.0794 | 2.0794 |
-| One-vs-rest | 2 | 350 | 5.858 | 5.858 |
-| One-step subsets | 2 | 659 | 6.4907 | 6.4908 |
-| Sequential subsets | 2 | 659 | 6.4907 | 6.4888 |
+| Depth | Trees | Target $\log Z$ | Learned $\log Z$ |
+|---|---|---|---|
+| 2 | 659 | 6.4907 | 6.4888 |
 
 The tree counts are also checked by an independent count that doesn't use
 the environment code.
 
-### Categorical vs numeric codes (`cat_onevsrest`, 10k steps)
+### Known subset rule (`cat_subset`)
 
-| | TV to exact | Top tree | GFlowNet | Exact |
-|---|---|---|---|---|
-| One-vs-rest | **0.032** | color $=$ blue | 65.9% | 65.4% |
-| Numeric codes ($x\le\tau$, 9 thresholds) | 0.195 | needs 2 splits | ~3% each | ~3% each |
+| TV to exact | Learned $\log Z$ | Exact $\log Z$ |
+|---|---|---|
+| 0.056 | $-108.20$ | $-107.96$ |
 
-![Top: GFlowNet vs exact posterior for the 10 most probable trees, categorical (one split isolates blue) and numeric codes (two splits needed). Right: uniform-reward log Z.](figures/categorical_results.png)
+The exact posterior puts 80.9% on the single tree
+color $\in\{\text{red},\text{green}\}$, which is the true rule; the
+GFlowNet samples it at 84.2%.
 
-**Why the numeric baseline spreads its probability.** With colors scaled to
-red $=0$, blue $=0.33$, green $=0.67$, yellow $=1$, isolating blue needs two
-cuts. Thresholds 0.1, 0.2 and 0.3 give the same red/blue cut, 0.4, 0.5 and
-0.6 the same blue/green cut, and the cuts can be made in either order: at
-least $3\times3\times2=18$ trees route the samples identically, so they have
-the same reward and share the posterior mass (about 30 trees at $\approx3\%$).
-The categorical split color $=$ blue is a single tree. The best numeric tree
-also has a much lower log-posterior ($-102.62$ vs $-97.34$, about $200\times$
-less likely).
+**The most probable tree** (counts on the 400 training samples):
 
-![Most probable trees, drawn with the library's `Tree.display()`.](figures/top_trees.png)
+```
+        color ∈ {red, green} ?
+          /             \
+        yes              no
+   194 samples       206 samples
+   183 have y=1      16 have y=1
+   → predict 1       → predict 0
+```
 
-### Subsets vs one-vs-rest (`cat_subset`)
+One split separates the data almost perfectly: the only errors are the
+flipped labels. Why it beats other trees:
 
-| Method | TV to exact | Learned $\log Z$ | Exact $\log Z$ |
+| Tree | Fit (likelihood) | Size (prior) | Reward |
 |---|---|---|---|
-| One-step subsets | **0.047** | $-107.56$ | $-107.96$ |
-| Sequential subsets | 0.056 | $-108.20$ | $-107.96$ |
-| One-vs-rest | 0.091 | $-111.75$ | $-111.21$ |
-
-With subset splits, the exact posterior puts 80.9% on the single tree
-color $\in\{\text{red},\text{green}\}$; the sequential GFlowNet samples it at
-84.2%. One-vs-rest cannot express the rule in one split: its probability is
-spread over 4 two-split trees (22.5%, 22.5%, 16.6%, 16.6%), and its best tree
-has a lower log-posterior ($-112.70$ vs $-108.17$).
+| color $\in\{\text{red},\text{green}\}$ | very good: both leaves almost pure | 1 split | **highest** |
+| color $=$ red | bad: the "no" leaf mixes green (mostly 1) with blue and yellow (mostly 0) | 1 split | low |
+| color $\in\{\text{red},\text{green}\}$, then a split on size | about the same (size carries no information) | 2 splits | lower: pays $\approx 2.5$ nats for the extra split |
 
 ### Real data: Play Tennis (depth $\le 3$)
 
-Quinlan's ID3 example: 14 samples, 4 categorical features (outlook: sunny,
-overcast, rain; temperature: hot, mild, cool; humidity: high, normal; wind:
-weak, strong), binary label, all samples used for training. Sequential
-subsets, seed 1, 10k steps.
+**The dataset.** Ross Quinlan introduced ID3 (Iterative Dichotomiser 3,
+1986), one of the first decision-tree algorithms. It builds a tree greedily:
+at each node it picks the feature that best separates the labels (highest
+information gain). C4.5 is its successor, and CART is a close cousin. To
+illustrate ID3, Quinlan used a tiny dataset, **Play Tennis**, which became the
+textbook example of decision trees. Each row is a day described by the
+weather, and the label says whether tennis was played. The first 5 of the 14
+days:
 
-There are 8, 380, 194,018 and about $2.7\times10^9$ trees at depth 1, 2, 3
-and 4, so depth 3 is the deepest where the exact posterior can be enumerated.
-The enumeration is generated directly (same recursion as the tree count) and
-scored with the training proxy; at depth 2 it matches a depth-first search
-through the environment (380 trees).
+| Outlook | Temperature | Humidity | Wind | Play? |
+|---|---|---|---|---|
+| sunny | hot | high | weak | no |
+| sunny | hot | high | strong | no |
+| overcast | hot | high | weak | yes |
+| rain | mild | high | weak | yes |
+| rain | cool | normal | weak | yes |
+
+14 samples, 4 categorical features (outlook: sunny, overcast, rain;
+temperature: hot, mild, cool; humidity: high, normal; wind: weak, strong),
+binary label, all samples used for training. It is used here because it is a
+well-known real dataset that is **all categorical** and **tiny**, so the exact
+posterior can be computed. Setup: sequential subsets, seed 1, 10k steps.
+
+The tree ID3 finds:
+
+```
+              outlook?
+        /        |         \
+     sunny    overcast     rain
+       |         |           |
+   humidity?    yes        wind?
+    /    \                /     \
+  high  normal         strong   weak
+   no    yes             no      yes
+```
+
+ID3 splits outlook three ways in one node. Our trees only make **binary**
+splits ($x_f \in L$ or not), so the same predictions need several binary
+trees (see below).
+
+**How many trees.** There are 8, 380, 194,018 and about $2.7\times10^9$
+trees at depth 1, 2, 3 and 4. Computing the exact posterior means computing
+the reward of every tree, which is possible for 194,018 trees but not for 2.7
+billion, so depth 3 is the deepest where the exact posterior can be computed.
+
+**How the exact posterior is checked.** The 194,018 trees are listed by a
+separate script (same recursion as the tree count), not by stepping through
+the GFlowNet environment, and each one is scored with the same reward as in
+training. To check that this script lists the same trees as the environment,
+both are compared at depth 2, where a depth-first search through the
+environment is fast: both find the same 380 trees.
 
 | | GFlowNet | Exact / best possible |
 |---|---|---|
@@ -159,59 +224,5 @@ posterior itself: with 1000 samples spread over 194k trees, even a perfect
 sampler has a TV of about 0.33 on whole trees. The GFlowNet is at that floor
 for both metrics.
 
-![Play Tennis: GFlowNet samples vs exact posterior, for the root split and the 10 most probable trees.](figures/play_tennis.png)
 
-**The textbook tree is not the most probable.** The top tree is the single
-split outlook $\in\{\text{sunny},\text{rain}\}$, which isolates overcast
-(always play). With 14 samples, each split costs about 2.8 nats of prior,
-which outweighs the better fit of deeper trees. Trees that predict exactly
-like the ID3 tree (outlook, then humidity under sunny and wind under rain)
-appear at ranks 5–9: the three-way outlook split can be written with binary
-splits in 5 ways, each at about 2.1%, about 10.6% together.
-
-**Accuracy is not informative on 14 samples.**
-
-| | Accuracy |
-|---|---|
-| Train, mean over the 1000 sampled trees | 80.9% |
-| Train, vote of the sampled trees (BMA) | 100% |
-| Leave-one-out, exact posterior BMA | 50.0% |
-| Leave-one-out, CART (depth $\le 3$) | 64.3% |
-| Leave-one-out, majority class | 64.3% |
-
-Leave-one-out is pathological here: the top tree's $\{\text{sunny},\text{rain}\}$
-leaf holds exactly 5 yes and 5 no, so removing any one of these samples flips
-the leaf's vote against it. Test accuracy needs a larger dataset.
-
-### Takeaways
-
-- Categorical splits recover the exact posterior much better than numeric
-  codes (TV 0.032 vs 0.195).
-- One-vs-rest is dominated by subset splits when the rule groups categories.
-- One-step and sequential subsets perform about the same at $k=4$. Sequential
-  is kept because it scales to many categories ($k+1$ outputs instead of
-  $2^k-1$).
-- On real data (Play Tennis, 194k trees at depth 3), the sequential GFlowNet
-  samples the exact posterior up to sampling noise.
-
-## Limitations
-
-- Synthetic data and one tiny real dataset, one seed, small trees
-  (depth $\le 3$), few categories ($k\le 4$).
-- No test-set accuracy yet: Play Tennis is too small for it.
-- The tree is either all-categorical or all-numeric: mixed datasets are not
-  supported yet.
-- `Tree.readable2state` is not implemented in the library, so readable
-  round-trips are only tested at the node level.
-
-## Next steps
-
-| Task | Status |
-|---|---|
-| Play Tennis: exact posterior at depth 3 | Done |
-| Tic-Tac-Toe: test accuracy vs CART and numeric codes | Next |
-| Car Evaluation (ordered categories, control) | Planned |
-| Seeds 2–5 and test-set metrics | Planned |
-| Large-$k$ test of the sequential method | Planned |
-| Mixed numeric + categorical features | Planned |
 

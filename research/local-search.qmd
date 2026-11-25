@@ -19,20 +19,6 @@ proportional to their rewards.
 Local search can help explore promising regions of
 the state space by refining previously sampled objects.
 
-## Research Questions
-
-1. How can local search be integrated into the
-   existing GFlowNet library architecture?
-
-2. Which components should be reusable across
-   different environments?
-
-3. How does local search affect reward discovery
-   and sample diversity?
-
-4. How does it affect the learned sampling
-   distribution?
-
 ## Implementation Progress
 
 | Task | Status |
@@ -41,7 +27,6 @@ the state space by refining previously sampled objects.
 | Study integration with the library | Planned |
 | Implement local search components | Planned |
 | Add unit tests | Planned |
-| Run benchmark experiments | Planned |
 
 ## References
 

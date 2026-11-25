@@ -40,7 +40,7 @@ website:
         contents:
           - text: "Environments in the gflownet library"
             href: tutorials/gflownet-envs.qmd
-          - text: "Your First Bayesian Tree"
+          - text: "Building a Bayesian Tree"
             href: tutorials/first-tree.qmd
           - text: "Git basics"
             href: tutorials/git-basics.qmd
@@ -58,6 +58,8 @@ website:
             href: research/active-learning.qmd
           - text: "Local Search for GFlowNets"
             href: research/local-search.qmd
+          - text: "Scaling"
+            href: research/scaling.qmd
 
 format:
   html:

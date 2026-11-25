@@ -1,0 +1,29 @@
+---
+title: "Improve the scaling of the tree"
+---
+
+## Smaller state representation
+
+### The problem: the input grows with $2^{\text{depth}}$, not with the tree
+
+`Tree.states2policy` (in `gflownet/envs/tree/tree.py`) returns one flat vector
+per state with a fixed slot for **every possible node position** in a complete
+binary tree:
+
+$$
+[\ \text{idle}\ |\ \text{node}_0\ |\ \text{node}_1\ |\ \dots\ |\ \text{node}_{M-1}\ ],
+\qquad M = 2^{\text{max\_depth}} - 1,
+$$
+
+where each block is `[exists, done, active, node_env_encoding]`, of size
+$3 + p$ ($p$ = `node_env.policy_input_dim`). Slots of nodes that don't exist
+are filled with the encoding of the node source state. The input dimension is
+therefore $1 + M(3+p)$, whatever the size of the tree that is actually built.
+
+The first entry, `idle`, is 1 when no node is being built (the agent is
+choosing which leaf to expand, or EOS). The three flags of a block are:
+
+- `exists`: a node has been created at this position.
+- `done`: its split is finished (feature and threshold chosen).
+- `active`: it is the node being built right now (at most one per state).
+

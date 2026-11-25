@@ -2,15 +2,12 @@
 title: "GFlowNet"
 ---
 
-Welcome to my tutorial and research website on
-**Generative Flow Networks (GFlowNets)**.
-
-GFlowNets learn to build complex objects step by step, such as
+GFlowNets learn to build objects step by step, such as
 graphs, sequences, molecules, or decision trees, and to sample
-them in proportion to a reward. This site collects the theory,
-hands-on tutorials, and my ongoing research.
+them in proportion to a reward. I am building this site collects the theory,
+tutorials on how to use the library, and my ongoing research.
 
-## The central idea
+## The central idea of GFlowNet
 
 Given a reward $R(x) \geq 0$ over objects $x$, a GFlowNet learns
 a sequential sampler such that
@@ -20,8 +17,8 @@ P(x) = \frac{R(x)}{Z}, \qquad Z = \sum_{x} R(x).
 $$
 
 Instead of finding a single best object, it finds *many* good
-and diverse ones. That makes GFlowNets useful for discovery and
-for approximate Bayesian inference.
+and diverse ones.
+
 
 ## What you'll find here
 
@@ -36,9 +33,4 @@ Step-by-step computational examples: building objects
 sequentially, defining rewards, and training GFlowNets.
 
 ### Research
-Ongoing projects, including:
-
-- **DT-GFN**: sampling Bayesian decision trees from the
-  posterior $p(T \mid D) \propto p(D \mid T)\, p(T)$.
-- **Local search for GFlowNets**: refining sampled objects to
-  improve reward discovery and diversity.
+Ongoing projects

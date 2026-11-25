@@ -111,15 +111,10 @@ This usually makes training faster than with local objectives.
 
 ## Training loop
 
-1. Sample trajectories with $P_F$, plus exploration if needed
-   (for example $\epsilon$-greedy or tempering).
+1. Sample trajectories with $P_F$
 2. Compute the reward $R(x)$ of each terminal object.
 3. Take a gradient step on the chosen loss.
-
-The objectives are **off-policy**: any trajectories with full
-support can be used to train, including replayed or locally
-refined samples. This is what makes local search
-(Part III) a natural add-on.
+.
 
 
 ## Evaluating a GFlowNet
@@ -129,7 +124,9 @@ refined samples. This is what makes local search
 
 the idea is to measure the accuracy of training GFlowNet p(x/param)
 
-###2nd : can also be interested in evaluating the number of mode discovered 
+### 2nd : can also be interested in evaluating the number of mode discovered
+
+### 3rd : log Z test 
 
 ## Connection to Bayesian decision trees
 

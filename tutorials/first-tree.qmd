@@ -12,5 +12,3 @@ tree (features are categorical and mixed) and compute its Bayesian score.
 - Define candidate tree structures.
 - Compute their marginal likelihoods.
 - Compare their posterior weights.
-
-*Executable experiments coming next.*

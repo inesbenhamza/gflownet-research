@@ -725,7 +725,8 @@ tree.get_valid_actions()    # [(0, 1, 1)]   L = {0}: the only split of A = {0, 2
 Node 1 can still split on `color`, but only between categories 0 and
 2, since 1 and 3 went right at the root.
 
-A few things to keep in mind:
+::: {.callout-warning}
+## implementation notes
 
 - `is_categorical` applies to the whole tree, so every feature must be
   categorical. Mixed numeric and categorical data is not supported yet.
@@ -733,9 +734,8 @@ A few things to keep in mind:
   data (train and test) as `max code + 1`, so codes must be
   `0, …, k - 1`.
 - `MAX_CATEGORIES = 64` caps the categories per feature.
-- The `synthetic_cat` datasets (`cat_onevsrest_*`, `cat_subset_*`,
-  `cat_depth2_*`) and `tests/gflownet/envs/test_tree_categorical.py`
-  cover this node type.
+
+:::
 
 ## Choosing an environment
 
