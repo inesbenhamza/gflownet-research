@@ -1,0 +1,39 @@
+---
+title: "Mixed numeric and categorical features"
+---
+
+::: {.callout-note}
+## Implementation ongoing
+
+This page describes work in progress.
+(`gflownet/envs/tree/mixed_node.py`)
+:::
+
+## Goal
+
+Right now a `Tree` is either fully numeric or fully categorical
+(`is_categorical` applies to the whole tree). The goal is a single node
+type that can split on **both** kinds of features in the same tree:
+
+- numeric feature: `x[f] <= t`
+- categorical feature: `x[f] in L`
+
+## `DecisionTreeNodeMixed`
+
+The node is a `Stack` of three stages:
+
+0. **feature**: a `Choice` over all features;
+1. **threshold**: a `Choice` over `n_thresholds` discrete thresholds, as in
+   `DecisionTreeNodeDiscreteChoice`. Used only when the chosen feature is
+   numeric;
+2. **category**: a `SubsetSequential` that builds the left set `L`, as in
+   `DecisionTreeNodeCategoricalSequential`. Used only when the chosen
+   feature is categorical.
+
+A node uses only one of stages 1 and 2. The other one stays at its source state:
+
+| Feature type | Path through the stages | Ends with |
+|---|---|---|
+| numeric | 0 → 1 → done | the threshold EOS |
+| categorical | 0 → 2 → done (stage 1 skipped) | the subset STOP |
+

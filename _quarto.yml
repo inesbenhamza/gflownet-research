@@ -54,6 +54,8 @@ website:
             href: research/DT_GFN.qmd
           - text: "Categorical Splits"
             href: research/categorical-splits.qmd
+          - text: "Mixed Node"
+            href: research/mixed-node.qmd
           - text: "Active Learning"
             href: research/active-learning.qmd
           - text: "Local Search for GFlowNets"
